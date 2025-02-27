@@ -14,13 +14,14 @@ class Traffic_Augmentation:
         i = 0
         num = len(O) - 1
         delays = self.get_delay(len(O))
-        while num >= i:
+        while num >= i and int(O[i]) > 0:
             RTT = random.random() * self.MAX_RTT
             buf = 0
             while num >= i and RTT > 0:
                 interval = delays[i]
                 RTT -= interval
                 buf += int(O[i]) - 40
+                #some dataset have no head, that time no need to -40
                 i += 1
             while buf > MSS:
                 lengthflow.append(MSS + 40)
@@ -28,6 +29,7 @@ class Traffic_Augmentation:
             lengthflow.append(buf + 40)
         return lengthflow
     
+    #randomly creat delay
     def get_delay(self, size):
         delays = []
         while len(delays) < size:
@@ -40,7 +42,8 @@ class Traffic_Augmentation:
                 t = expon.rvs(loc = loc, scale = scale, size = 1)
                 delays.extend(t)
         return delays
-
+    
+    #make sure the data be the same length
     def fit_data(self, seq, max_l):
         lable = seq[-1]
         data = seq[:-1]
