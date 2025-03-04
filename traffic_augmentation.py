@@ -45,12 +45,10 @@ class Traffic_Augmentation:
     
     #make sure the data be the same length
     def fit_data(self, seq, max_l):
-        lable = seq[-1]
         data = seq[:-1]
         if len(data) < max_l:
             while len(data) < max_l:
                 data.append(0)
         else:
             data = seq[:max_l]
-        data.append(lable)
         return data
