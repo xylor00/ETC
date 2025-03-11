@@ -1,5 +1,6 @@
 import torch
 import random
+import numpy as np
 from scipy.stats import expon
 from torch import nn
 
@@ -15,37 +16,46 @@ class TrafficAugmentation(nn.Module):
            
         # 执行流量增强
         aug_flow = self._traffic_augmentation(x)
+        aug_flow_array = np.array(aug_flow)
+        aug_flow_torch = torch.from_numpy(aug_flow_array)
             
-        # 填充/截断到固定长度
-        final_flow = self._fit_data(aug_flow)
-            
-        return final_flow
+        return aug_flow_torch
 
-    def _traffic_augmentation(self, O):
-        """核心增强逻辑"""
-        lengthflow = []
-        interval = 0
-        i = 0
-        num = len(O) - 1
-        delays = self._get_delay(len(O))
+    def _traffic_augmentation(self, x):
         
-        while num >= i and O[i] > 0:
-            RTT = random.random() * self.MAX_RTT
-            buf = 0
-            while num >= i and RTT > 0:
-                interval = delays[i]
-                RTT -= interval
-                buf += O[i] - 40  # 假设包含40字节头
-                i += 1
+        O = x.numpy()
+        final_lengthflows = []
+        """核心增强逻辑"""
+        for row in O:
+            lengthflow = []
+            fit_lengthflow = []
+            interval = 0
+            i = 0
+            num = len(row) - 1
+            delays = self._get_delay(len(row))
+            
+            while num >= i and row[i] > 0:
+                RTT = random.random() * self.MAX_RTT
+                buf = 0
+                while num >= i and RTT > 0:
+                    interval = delays[i]
+                    RTT -= interval
+                    buf += row[i] - 40  # 假设包含40字节头
+                    i += 1
+                    
+                while buf > self.MSS:
+                    lengthflow.append(self.MSS + 40)
+                    buf -= self.MSS
+                    
+                if buf > 0:
+                    lengthflow.append(buf + 40)
+                    
+            # 填充/截断到固定长度
+            fit_lengthflow = self._fit_data(lengthflow)             
                 
-            while buf > self.MSS:
-                lengthflow.append(self.MSS + 40)
-                buf -= self.MSS
-                
-            if buf > 0:
-                lengthflow.append(buf + 40)
-                
-        return lengthflow
+            final_lengthflows.append(fit_lengthflow)
+        
+        return final_lengthflows
 
     def _get_delay(self, size):
         """生成延迟序列"""
@@ -58,9 +68,8 @@ class TrafficAugmentation(nn.Module):
                 delays.extend(expon.rvs(loc=loc, scale=scale, size=1))
         return delays[:size]
 
-    def _fit_data(self, seq):
+    def _fit_data(self, data):
         """调整序列长度"""
-        data = seq[:-1]
         if len(data) < self.max_length:
             data += [0] * (self.max_length - len(data))
         else:
