@@ -108,7 +108,7 @@ def SimSiamMLP(dim, projection_size, hidden_size=4096, sync_batchnorm=None):
 class NetWrapper(nn.Module):
     def __init__(
         self,
-        net,  # MLPBackbone实例
+        net,  
         projection_size,
         projection_hidden_size,
         layer=-2,  # 默认取倒数第二层的输出
@@ -116,8 +116,7 @@ class NetWrapper(nn.Module):
         sync_batchnorm=None
     ):
         super().__init__()
-        self.net = net.layers  # 访问内部的Sequential模块
-        self.layer = layer
+        self.net = net# 访问内部的Sequential模块
         self.projection_size = projection_size
         self.projection_hidden_size = projection_hidden_size
         self.use_simsiam_mlp = use_simsiam_mlp
@@ -126,21 +125,20 @@ class NetWrapper(nn.Module):
 
     @singleton('projector')
     def _get_projector(self, hidden):
+        """根据GRU输出维度创建投影头"""
         _, dim = hidden.shape
         create_mlp_fn = MLP if not self.use_simsiam_mlp else SimSiamMLP
         projector = create_mlp_fn(
-            dim, self.projection_size,
+            dim, 
+            self.projection_size,
             self.projection_hidden_size,
             sync_batchnorm=self.sync_batchnorm
         )
         return projector.to(hidden.device)
 
     def get_representation(self, x):
-        # 遍历到指定层的前一层
-        features = x
-        for layer in self.net[:self.layer]:
-            features = layer(features)
-        return features
+        """直接返回GRU骨干网络的输出（不包含投影头）"""
+        return self.net(x)
 
     def forward(self, x, return_projection=True):
         representation = self.get_representation(x)
@@ -210,7 +208,7 @@ class BYOL(nn.Module):
         device = get_module_device(net)
         self.to(device)
 
-        # send a mock image tensor to instantiate singleton parameters
+        # send a mock tensor to instantiate singleton parameters
         self.forward(torch.randn(2, input_dim, device=device))
 
     @singleton('target_encoder')

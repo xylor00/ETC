@@ -1,6 +1,5 @@
 import torch
 import random
-import numpy as np
 from scipy.stats import expon
 from torch import nn
 
@@ -16,10 +15,10 @@ class TrafficAugmentation(nn.Module):
            
         # 执行流量增强
         aug_flow = self._traffic_augmentation(x)
-        aug_flow_array = np.array(aug_flow)
-        aug_flow_torch = torch.from_numpy(aug_flow_array)
+        aug_flow_torch = torch.Tensor(aug_flow)
+        final_flow = torch.reshape(aug_flow_torch, shape=(aug_flow_torch.shape[0], aug_flow_torch.shape[1], 1))
             
-        return aug_flow_torch
+        return final_flow
 
     def _traffic_augmentation(self, x):
         
@@ -82,4 +81,5 @@ class IdentityAugmentation(nn.Module):
         super().__init__()
         
     def forward(self, x):
+        x = torch.reshape(x, shape=(x.shape[0], x.shape[1], 1))
         return x  # 直接返回原始输入
