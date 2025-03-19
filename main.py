@@ -88,4 +88,3 @@ for i in range(5):
 
 # 测试
 torch.save(gru_backbone.state_dict(), './improved-net.pt')
-print("success")
