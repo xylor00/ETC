@@ -38,7 +38,7 @@ def closure(pkts):
     return pkts_dict
 
 def pkt2feature(data):
-    data_dict = []
+    data_list = []
 
     for c in categories:
         all_pkts = []
@@ -63,10 +63,10 @@ def pkt2feature(data):
             pos.extend([0] * (max_byte_len - len(pos)))
             byte.append(c)
             
-            data_dict.append(byte)
+            data_list.append(byte)
             
             
-    return data_dict
+    return data_list
 
 
 pkts_list = []
