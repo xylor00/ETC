@@ -105,18 +105,22 @@ def pkt2feature(all_flows):
     return all_flows_dict
 
 
-pkts_list = []
+def get_headers():
+    pkts_list = []
 
-chat = dpkt.pcap.Reader(open('testchat.pcap', 'rb'))
-chat_flows = gen_pkts(chat, 0)
-pkts_list.append(chat_flows)
+    chat = dpkt.pcap.Reader(open('testchat.pcap', 'rb'))
+    chat_flows = gen_pkts(chat, 0)
+    pkts_list.append(chat_flows)
 
 
-email = dpkt.pcap.Reader(open('testemail.pcap', 'rb'))
-email_flows = gen_pkts(email, 1)
-pkts_list.append(email_flows)
+    email = dpkt.pcap.Reader(open('testemail.pcap', 'rb'))
+    email_flows = gen_pkts(email, 1)
+    pkts_list.append(email_flows)
 
-all_flows = closure(pkts_list)
+    all_flows = closure(pkts_list)
 
-all_flows_dict = pkt2feature(all_flows)
+    all_flows_dict = pkt2feature(all_flows)
+    return all_flows_dict
+
+all_flows_dict = get_headers()
 print(all_flows_dict)

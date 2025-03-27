@@ -1,29 +1,47 @@
-flow = [[69, 0, 0, 46, 94, 81, 64, 0, 128, 6, 97, 133], [69, 0, 0, 46, 94, 83, 64, 0, 128, 6, 97, 131], [69, 0, 0, 46, 94, 85, 64, 0, 128, 6, 97, 129], 
-            [69, 0, 0, 46, 94, 87, 64, 0, 128, 6, 97, 127], [69, 0, 0, 46, 94, 90, 64, 0, 128, 6, 97, 124], [69, 0, 0, 46, 94, 92, 64, 0, 128, 6, 97, 122], 
-            [69, 0, 0, 46, 94, 94, 64, 0, 128, 6, 97, 120], [69, 0, 0, 46, 94, 96, 64, 0, 128, 6, 97, 118], [69, 0, 0, 46, 94, 98, 64, 0, 128, 6, 97, 116], 
-            [69, 0, 0, 46, 94, 100, 64, 0, 128, 6, 97, 114], [69, 0, 0, 46, 94, 102, 64, 0, 128, 6, 97, 112], [69, 0, 0, 46, 94, 104, 64, 0, 128, 6, 97, 110], 
-            [69, 0, 0, 46, 94, 106, 64, 0, 128, 6, 97, 108], [69, 0, 0, 46, 94, 108, 64, 0, 128, 6, 97, 106], [69, 0, 0, 46, 94, 110, 64, 0, 128, 6, 97, 104], 
-            [69, 0, 0, 46, 94, 112, 64, 0, 128, 6, 97, 102], [69, 0, 0, 46, 94, 114, 64, 0, 128, 6, 97, 100], [69, 0, 0, 46, 94, 116, 64, 0, 128, 6, 97, 98], 
-            [69, 0, 0, 46, 94, 118, 64, 0, 128, 6, 97, 96], [69, 0, 0, 46, 94, 120, 64, 0, 128, 6, 97, 94], [69, 0, 0, 46, 94, 122, 64, 0, 128, 6, 97, 92]]
+# 示例数据转换验证
+flow = [
+    [69, 0, 0, 50, 18, 223, 0, 0, 1, 17, 81, 207],
+    [69, 0, 0, 113, 125, 95, 0, 0, 128, 17, 72, 245],
+    [69, 0, 0, 117, 56, 29, 0, 0, 128, 17, 142, 27],
+    [69, 0, 0, 50, 35, 41, 0, 0, 1, 17, 63, 110],
+    [69, 0, 0, 50, 35, 42, 0, 0, 1, 17, 63, 109]
+]
 
-def create_ngram_model(flow, n):
-    all_ngrams = []  # 存储所有IP数据包的n-gram
+def append_pkt_ngram(pkt, n):
+    # 步骤1：将每个整数转为2位十六进制字符串（小写补零）
+    hex_pkt = [f"{byte:02x}" for byte in pkt]  # 如69 → '45'
+    
+    ngram_pkt = []
+    # 步骤2：生成滑动窗口拼接的n-gram
+    for i in range(len(hex_pkt) - n + 1):
+        # 拼接连续n个十六进制字符串
+        ngram = "".join(hex_pkt[i:i+n])
+        
+        #将十六进制字符串转换为十进制并加入原流量中
+        ngram_dec = int(ngram, 16)
+        ngram_pkt.append(ngram_dec)
+    
+    return ngram_pkt
+
+def create_plevel_feature(flow):
+    #初始化包级别特征
+    plevel_feature = []
+    i = 0
     
     for pkt in flow:
-        # 对每个IP数据包单独处理
-        pkt_ngrams = []#存储当前IP数据包的n-gram
+        plevel_feature.append(pkt)
         
-        for i in range(len(pkt) - n + 1):
-            ngram = pkt[i : i + n]
-            pkt_ngrams.append(ngram)
+        #每个数据包进行2-gram, 3-gram特征提取
+        gram_pkt_2 = append_pkt_ngram(pkt, 2)
+        gram_pkt_3 = append_pkt_ngram(pkt, 3)
         
-        # 将当前IP数据包的n-gram合并到总列表    
-        all_ngrams.append(pkt_ngrams)
-    
-    return all_ngrams
+        plevel_feature[i].extend(gram_pkt_2)
+        plevel_feature[i].extend(gram_pkt_3)
+        
+        i += 1
+        
+    return plevel_feature
 
-
-n = 2
-
-ngram_model = create_ngram_model(flow, n)
-print(ngram_model[:3])        
+print(flow)
+plevel_feature = create_plevel_feature(flow)
+print(plevel_feature)
