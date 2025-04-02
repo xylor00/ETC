@@ -57,11 +57,13 @@ def gen_pkts(pcap, label):
                 # 初始化该五元组的存储列表
                 if flow_key not in pkts:
                     pkts[flow_key] = {  
-                        'packets': []           # 数据包列表
+                        'packets': [],           # 数据包列表
+                        'lengths': []            # 数据包长度序列
                     }
                 
                 # 添加数据包到对应五元组
                 pkts[flow_key]['packets'].append(ip)
+                pkts[flow_key]['lengths'].append(ip.len)
     return pkts
 
 
@@ -84,8 +86,10 @@ def pkt2feature(all_flows):
     for flow_key, flow_data in all_flows.items():
         # 获取该流的分类标签（字符串形式）
         all_flows_dict[flow_key] = {
-            'byte': []# 流量字节数据列表
+            'byte': [], # 流量字节数据列表
+            'lengths': [] # 数据包长度序列
         }
+        all_flows_dict[flow_key]['lengths'] = flow_data['lengths']
         
         # 遍历当前流中的所有数据包
         for pkt in flow_data['packets']:
@@ -124,3 +128,15 @@ def get_headers():
 
 all_flows_dict = get_headers()
 print(all_flows_dict)
+
+"""
+chat = dpkt.pcap.Reader(open('testchat.pcap', 'rb'))
+chat_flows = gen_pkts(chat, 0)
+
+i = 0
+for key, data in chat_flows.items():
+    if i < 1:
+        for pkt in data['packets']:
+            print(sum(pkt))
+    i += 1
+"""
