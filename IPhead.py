@@ -2,12 +2,14 @@ import dpkt
 import socket
 
 max_byte_len = 12
+min_tcp_len = 40
+min_udp_len = 28
 
 categories = ["Chat", "Email"]
 labels = [0, 1]
 
 
-def gen_pkts(pcap, label):
+def get_pkts(pcap, label):
     """按五元组分类存储数据包"""
     pkts = {}
 
@@ -25,6 +27,17 @@ def gen_pkts(pcap, label):
 
             # 提取五元组要素
             if isinstance(trans_proto, (dpkt.tcp.TCP, dpkt.udp.UDP)):
+
+                # 动态设置最小长度阈值
+                if isinstance(trans_proto, dpkt.tcp.TCP):
+                    min_len = min_tcp_len  # IP头20 + TCP头20
+                else:
+                    min_len = min_udp_len  # IP头20 + UDP头8
+
+                # 剔除长度不足的包
+                if ip.len < min_len:
+                    continue  # 跳过当前数据包
+
                 # 转换IP地址为点分十进制格式
                 src_ip = socket.inet_ntoa(ip.src)
                 dst_ip = socket.inet_ntoa(ip.dst)
@@ -38,7 +51,7 @@ def gen_pkts(pcap, label):
                 
                 flow_label = label# 原始标签
                 label_name = categories[label]# 类别名称
-                
+
                 # 构造五元组标识键
                 # (为了防止不同类型流量的五元组相同导致流量缺失，加上两个类别标识)
                 flow_key = (
@@ -63,19 +76,21 @@ def gen_pkts(pcap, label):
                 
                 # 添加数据包到对应五元组
                 pkts[flow_key]['packets'].append(ip)
-                pkts[flow_key]['lengths'].append(ip.len)
+                pkts[flow_key]['lengths'].append(ip.len)                
+
     return pkts
 
 
 def closure(pkts_list):
     """整合多个pcap结果"""
     merged = {}
-    for pkt_dict in pkts_list:
+    for pkt_dict in pkts_list:# 遍历每个流量类别
         for flow_key, flow_data in pkt_dict.items():
-            if flow_key not in merged:
+            #将数据包过少的流剔除
+            if len(flow_data['lengths']) >= 5:
+                
                 merged[flow_key] = flow_data
-            else:
-                merged[flow_key]['packets'].extend(flow_data['packets'])
+
     return merged
 
 def pkt2feature(all_flows):
@@ -109,34 +124,19 @@ def pkt2feature(all_flows):
     return all_flows_dict
 
 
-def get_headers():
+def Get_headers():
     pkts_list = []
 
     chat = dpkt.pcap.Reader(open('testchat.pcap', 'rb'))
-    chat_flows = gen_pkts(chat, 0)
+    chat_flows = get_pkts(chat, 0)
     pkts_list.append(chat_flows)
 
 
     email = dpkt.pcap.Reader(open('testemail.pcap', 'rb'))
-    email_flows = gen_pkts(email, 1)
+    email_flows = get_pkts(email, 1)
     pkts_list.append(email_flows)
 
     all_flows = closure(pkts_list)
 
     all_flows_dict = pkt2feature(all_flows)
     return all_flows_dict
-
-all_flows_dict = get_headers()
-print(all_flows_dict)
-
-"""
-chat = dpkt.pcap.Reader(open('testchat.pcap', 'rb'))
-chat_flows = gen_pkts(chat, 0)
-
-i = 0
-for key, data in chat_flows.items():
-    if i < 1:
-        for pkt in data['packets']:
-            print(sum(pkt))
-    i += 1
-"""

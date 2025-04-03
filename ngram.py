@@ -41,6 +41,3 @@ def create_plevel_feature(flow):
         i += 1
         
     return plevel_feature
-
-plevel_feature = create_plevel_feature(flow)
-print(plevel_feature)
