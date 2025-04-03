@@ -8,51 +8,44 @@ from traffic_augmentation import TrafficAugmentation, IdentityAugmentation
 import pandas as pd
 from GRUnet import GRUBackbone
 from IPhead import Get_headers
+from byoltrainer import BYOL_train
+from ngram import create_plevel_feature
 
-# 模拟拆包粘包增强
-aug_1 = TrafficAugmentation()
-aug_2 = IdentityAugmentation()
-"""
-# 初始化GRU骨干网络
-gru_backbone = GRUBackbone(
-    input_dim=1,          # 假设输入是单变量时间序列
-    hidden_dim=128,
-    output_dim=256        # 需与projection_size一致
-)
 
-# 创建BYOL实例
-learner = BYOL(
-    net=gru_backbone,
-    input_dim=100,
-    augment_fn=aug_1,
-    augment_fn2=aug_2,
-    projection_size=256,
-    projection_hidden_size=512
-)
-"""
+max_length = 100
+
 all_flows_dict = Get_headers()
-print(all_flows_dict)
+
+flow_sequences = []#存储数据包长度序列
+IPheads = []#存储数据包头内容
+
+
+for flow_key, flow_data in all_flows_dict.items():
+    #读取每个流的类别
+    label = flow_key[-1]
+    
+    #读取每个流的数据包长度序列
+    pkt_length_sequence = flow_data['lengths']        
+     
+    #将长度序列截断或填充位等长，方便后续处理    
+    if len(pkt_length_sequence) < max_length:
+        pkt_length_sequence += [0] * (max_length - len(pkt_length_sequence))
+    else:
+        pkt_length_sequence = pkt_length_sequence[:max_length]
+        
+    flow_sequences.append(pkt_length_sequence)
+    
+    
+    #对每个流的IP包头数据进行n-gram处理
+    IPhead_bytes = flow_data['byte']
+    plevel_feature = create_plevel_feature(IPhead_bytes)
+    IPheads.append(plevel_feature)
+    
+print(flow_sequences[0])
+print(IPheads[0])
 
 """
-dataset = pd.read_csv("test.csv", skiprows=1, header=None)
-
-# 分离特征和标签
-features = dataset.iloc[:, :-1].values.astype(int)
-labels = dataset.iloc[:, -1].values
-
-opt = torch.optim.Adam(learner.parameters(), lr=3e-4)
-
-for i in range(5):
-    flow = features[i : i + 2]
-    f_tensor = torch.from_numpy(flow)
-    loss = learner(f_tensor)
-    opt.zero_grad()
-    loss.backward()
-    opt.step()
-    learner.update_moving_average() # update moving average of target encoder
-    print(loss)  # 应输出损失值
-
-
-# 测试
-torch.save(gru_backbone.state_dict(), './improved-net.pt')"
+#使用BYOL方法训练GRU网络
+BYOL_train(flow_sequences)
 """
+

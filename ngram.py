@@ -1,11 +1,4 @@
-# 示例数据转换验证
-flow = [
-    [69, 0, 0, 50, 18, 223, 0, 0, 1, 17, 81, 207],
-    [69, 0, 0, 113, 125, 95, 0, 0, 128, 17, 72, 245],
-    [69, 0, 0, 117, 56, 29, 0, 0, 128, 17, 142, 27],
-    [69, 0, 0, 50, 35, 41, 0, 0, 1, 17, 63, 110],
-    [69, 0, 0, 50, 35, 42, 0, 0, 1, 17, 63, 109]
-]
+p_level_pkt_num = 5 # 包级别特征提取的包数
 
 def append_pkt_ngram(pkt, n):
     # 步骤1：将每个整数转为2位十六进制字符串（小写补零）
@@ -23,12 +16,12 @@ def append_pkt_ngram(pkt, n):
     
     return ngram_pkt
 
-def create_plevel_feature(flow):
+def create_plevel_feature(IPhead_bytes):
     #初始化包级别特征
     plevel_feature = []
     i = 0
     
-    for pkt in flow:
+    for pkt in IPhead_bytes:
         plevel_feature.append(pkt)
         
         #每个数据包进行2-gram, 3-gram特征提取
@@ -39,5 +32,9 @@ def create_plevel_feature(flow):
         plevel_feature[i].extend(gram_pkt_3)
         
         i += 1
+        
+        # 仅取前5个数据包的包级别流量
+        if i >= p_level_pkt_num:
+            break
         
     return plevel_feature
