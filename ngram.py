@@ -22,14 +22,14 @@ def create_plevel_feature(IPhead_bytes):
     i = 0
     
     for pkt in IPhead_bytes:
-        plevel_feature.append(pkt)
+        plevel_feature.extend(pkt)
         
         #每个数据包进行2-gram, 3-gram特征提取
         gram_pkt_2 = append_pkt_ngram(pkt, 2)
         gram_pkt_3 = append_pkt_ngram(pkt, 3)
         
-        plevel_feature[i].extend(gram_pkt_2)
-        plevel_feature[i].extend(gram_pkt_3)
+        plevel_feature.extend(gram_pkt_2)
+        plevel_feature.extend(gram_pkt_3)
         
         i += 1
         

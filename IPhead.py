@@ -127,12 +127,12 @@ def pkt2feature(all_flows):
 def Get_headers():
     pkts_list = []
 
-    chat = dpkt.pcap.Reader(open('testchat.pcap', 'rb'))
+    chat = dpkt.pcap.Reader(open('dataset/testchat.pcap', 'rb'))
     chat_flows = get_pkts(chat, 0)
     pkts_list.append(chat_flows)
 
 
-    email = dpkt.pcap.Reader(open('testemail.pcap', 'rb'))
+    email = dpkt.pcap.Reader(open('dataset/testemail.pcap', 'rb'))
     email_flows = get_pkts(email, 1)
     pkts_list.append(email_flows)
 
