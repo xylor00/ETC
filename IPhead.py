@@ -5,8 +5,8 @@ max_byte_len = 12
 min_tcp_len = 40
 min_udp_len = 28
 
-categories = ["Chat", "Email"]
-labels = [0, 1]
+categories = ["Chat", "Email", "Video", "Audio"]
+labels = [0, 1, 2, 3]
 
 
 def get_pkts(pcap, label):
@@ -131,10 +131,17 @@ def Get_headers():
     chat_flows = get_pkts(chat, 0)
     pkts_list.append(chat_flows)
 
-
     email = dpkt.pcap.Reader(open('dataset/testemail.pcap', 'rb'))
     email_flows = get_pkts(email, 1)
     pkts_list.append(email_flows)
+    
+    video = dpkt.pcap.Reader(open('dataset/testvideo.pcap', 'rb'))
+    video_flows = get_pkts(video, 2)
+    pkts_list.append(video_flows)
+
+    audio = dpkt.pcap.Reader(open('dataset/testaudio.pcap', 'rb'))
+    audio_flows = get_pkts(audio, 3)
+    pkts_list.append(audio_flows)
 
     all_flows = closure(pkts_list)
 

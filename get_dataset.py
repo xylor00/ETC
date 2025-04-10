@@ -10,6 +10,8 @@ all_flows_dict = Get_headers()
 flow_sequences = []#存储数据包长度序列
 IPheads = []#存储数据包头内容
 
+merge_features = []#存储融合特征
+
 
 for flow_key, flow_data in all_flows_dict.items():
     #读取每个流的类别
@@ -24,21 +26,21 @@ for flow_key, flow_data in all_flows_dict.items():
     else:
         pkt_length_sequence = pkt_length_sequence[:max_length]
         
-    pkt_length_sequence.append(label) #将标签添加到长度序列末尾
+    pkt_length_sequence.append(label)
         
-    flow_sequences.append(pkt_length_sequence)
-    
-    
+    flow_sequences.append(pkt_length_sequence)      
+     
     #对每个流的IP包头数据进行n-gram处理
     IPhead_bytes = flow_data['byte']
-    plevel_feature = create_plevel_feature(IPhead_bytes)
+    plevel_feature = create_plevel_feature(IPhead_bytes) 
     
-    plevel_feature.append(label)#将标签添加到包级别特征末尾
-    IPheads.append(plevel_feature)
+    plevel_feature.append(label)
+    
+    IPheads.append(plevel_feature)      
     
 
 df_flow = pd.DataFrame(flow_sequences)
 df_flow.to_csv('dataset/flow_sequences.csv', index=False)
 
 df_IPhead = pd.DataFrame(IPheads)
-df_IPhead.to_csv('dataset/IPheads.csv', index=False)
+df_IPhead.to_csv('dataset/plevel_features.csv', index=False)
