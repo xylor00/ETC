@@ -53,7 +53,7 @@ learner = BYOL(
     projection_hidden_size=512
 )
 
-num_epochs = 3
+num_epochs = 10
 batch_size=50
 train_dataset = CSVDataset('dataset/flow_sequences.csv')
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)

@@ -46,7 +46,6 @@ class MLP(nn.Module):
         return out
 
 # 超参数配置 --------------------------------------------------
-# 自动获取输入维度（假设已经知道CSV结构）
 input_size = 421  
 hidden_size = 500
 num_classes = 4  # 4个类别
