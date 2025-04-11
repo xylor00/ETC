@@ -9,8 +9,9 @@ plevel_features = p_features.iloc[:, :].values
 
 merge_features = []#存储融合特征
 
-#将数据包长度序列和包级别特征融合，并给三种特征都加上标签
-
+#将数据包长度序列和包级别特征融合，并给特征加上标签
+#TODO:
+#特征融合算法
 merge_features = np.concatenate((flevel_features, plevel_features), axis=1)
 
 df_merge = pd.DataFrame(merge_features)
