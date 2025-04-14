@@ -90,7 +90,6 @@ all_labels = []
 with torch.no_grad():
     for flows, labels in feature_loader:
         # 调整输入形状为GRU期望的格式
-        # 假设原始数据是100个时间步，每个时间步1个特征
         # 输入形状应为 [batch_size, 序列长度, 特征维度]
         flows = flows.unsqueeze(-1)  # 从 [50,100] -> [50,100,1]
         
