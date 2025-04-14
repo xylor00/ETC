@@ -5,9 +5,7 @@ max_byte_len = 12
 min_tcp_len = 40
 min_udp_len = 28
 
-categories = ["Chat", "Email", "Video", "Audio"]
-labels = [0, 1, 2, 3]
-
+categories = ["Chat", "Email", "Video", "Audio"]# 所有类别
 
 def get_pkts(pcap, label):
     """按五元组分类存储数据包"""
@@ -49,8 +47,7 @@ def get_pkts(pcap, label):
                 src_port = trans_proto.sport
                 dst_port = trans_proto.dport
                 
-                flow_label = label# 原始标签
-                label_name = categories[label]# 类别名称
+                label_name = label# 类别名称
 
                 # 构造五元组标识键
                 # (为了防止不同类型流量的五元组相同导致流量缺失，加上两个类别标识)
@@ -63,7 +60,6 @@ def get_pkts(pcap, label):
                     dst_port,
                     
                     #类别标识
-                    flow_label,
                     label_name
                 )
 
@@ -128,19 +124,19 @@ def Get_headers():
     pkts_list = []
 
     chat = dpkt.pcap.Reader(open('dataset/testchat.pcap', 'rb'))
-    chat_flows = get_pkts(chat, 0)
+    chat_flows = get_pkts(chat, 'Chat')
     pkts_list.append(chat_flows)
 
     email = dpkt.pcap.Reader(open('dataset/testemail.pcap', 'rb'))
-    email_flows = get_pkts(email, 1)
+    email_flows = get_pkts(email, 'Email')
     pkts_list.append(email_flows)
-    
+
     video = dpkt.pcap.Reader(open('dataset/testvideo.pcap', 'rb'))
-    video_flows = get_pkts(video, 2)
+    video_flows = get_pkts(video, 'Video')
     pkts_list.append(video_flows)
 
     audio = dpkt.pcap.Reader(open('dataset/testaudio.pcap', 'rb'))
-    audio_flows = get_pkts(audio, 3)
+    audio_flows = get_pkts(audio, 'Audio')
     pkts_list.append(audio_flows)
 
     all_flows = closure(pkts_list)

@@ -72,7 +72,7 @@ for epoch in range(num_epochs):
         loss.backward()
         opt.step()
         
-        learner.update_moving_average() # update moving average of target encoder
+        learner.update_moving_average() # 目标网络参数指数移动平均更新
         if (i+1) % 2 == 0:
             print(f'Epoch [{epoch+1}/{num_epochs}], Step [{i+1}/{total_step}], Loss: {loss.item()}')  # 输出损失值
             
@@ -80,7 +80,7 @@ for epoch in range(num_epochs):
 gru_backbone.eval()
 
 # 创建用于特征提取的数据加载器（不打乱顺序）
-feature_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False) # 为了方便后续融合，不打乱顺序
+feature_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False)
 
 # 存储所有特征和标签的容器
 all_features = []
