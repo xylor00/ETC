@@ -31,7 +31,7 @@ class CSVDataset(Dataset):
             
         return x, y
 
-# 修改后的模型定义 --------------------------------------------------
+# 模型定义 --------------------------------------------------
 class MLP(nn.Module):
     def __init__(self, input_size, hidden_size, num_classes):
         super(MLP, self).__init__()
@@ -46,21 +46,12 @@ class MLP(nn.Module):
         return out
 
 # 超参数配置 --------------------------------------------------
-input_size = 421  
+input_size = 256  
 hidden_size = 500
 num_classes = 4  # 4个类别
 num_epochs = 10
 batch_size = 50
 learning_rate = 0.001
-
-#unused
-# 数据加载 --------------------------------------------------
-# 定义标准化转换（需根据实际数据计算均值和标准差）
-# 示例值，应根据实际数据调整
-transform = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.5], std=[0.5])  
-])
 
 # 创建数据集实例
 train_dataset = CSVDataset('dataset/merge_features.csv')
@@ -78,10 +69,10 @@ optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 # 训练模型
 total_step = len(train_loader)  # 总批次数 = 训练集大小 / batch_size
 for epoch in range(num_epochs):  # 遍历每个训练周期
-    for i, (images, labels) in enumerate(train_loader):  # 遍历每批数据
+    for i, (flows, labels) in enumerate(train_loader):  # 遍历每批数据
         
         # 前向传播
-        outputs = model(images)  # 模型预测
+        outputs = model(flows)  # 模型预测
         loss = criterion(outputs, labels)  # 计算损失
         
         # 反向传播和优化

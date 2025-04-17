@@ -1,5 +1,5 @@
 import torch
-from byol_pytorch import BYOL
+from byol_pytorch_fix import BYOL
 from traffic_augmentation import TrafficAugmentation, IdentityAugmentation
 import pandas as pd
 from GRUnet import GRUBackbone
@@ -76,7 +76,7 @@ for epoch in range(num_epochs):
         if (i+1) % 2 == 0:
             print(f'Epoch [{epoch+1}/{num_epochs}], Step [{i+1}/{total_step}], Loss: {loss.item()}')  # 输出损失值
             
-# 确保模型切换到评估模式（关闭Dropout等训练专用层）
+# 确保模型切换到评估模式（关闭训练专用层）
 gru_backbone.eval()
 
 # 创建用于特征提取的数据加载器（不打乱顺序）

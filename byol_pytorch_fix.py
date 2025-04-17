@@ -96,8 +96,10 @@ def SimSiamMLP(dim, projection_size, hidden_size=4096, sync_batchnorm=None):
         nn.Linear(hidden_size, hidden_size, bias=False),
         MaybeSyncBatchnorm(sync_batchnorm)(hidden_size),
         nn.ReLU(inplace=True),
-        nn.Linear(hidden_size, projection_size, bias=False),
-        MaybeSyncBatchnorm(sync_batchnorm)(projection_size, affine=False)
+        nn.Linear(hidden_size, hidden_size, bias=False),
+        nn.ReLU(inplace=True),
+        MaybeSyncBatchnorm(sync_batchnorm)(hidden_size, affine=False),
+        nn.Linear(hidden_size, projection_size, bias=False)
     )
 
 # a wrapper class for the base neural network
