@@ -36,6 +36,8 @@ def get_pkts(pcap, label):
                 if ip.len < min_len:
                     continue  # 跳过当前数据包
 
+                pkt_len = ip.len - min_len # 去除数据包头长度
+
                 # 转换IP地址为点分十进制格式
                 src_ip = socket.inet_ntoa(ip.src)
                 dst_ip = socket.inet_ntoa(ip.dst)
@@ -67,12 +69,12 @@ def get_pkts(pcap, label):
                 if flow_key not in pkts:
                     pkts[flow_key] = {  
                         'packets': [],           # 数据包列表
-                        'lengths': []            # 数据包长度序列
+                        'lengths': []            # 数据包长度序列(不包含IP包头)
                     }
                 
                 # 添加数据包到对应五元组
                 pkts[flow_key]['packets'].append(ip)
-                pkts[flow_key]['lengths'].append(ip.len)                
+                pkts[flow_key]['lengths'].append(pkt_len)                
 
     return pkts
 

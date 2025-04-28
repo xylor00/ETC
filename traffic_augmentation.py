@@ -1,9 +1,10 @@
 import torch
-import torch.distributions as dist
+import random
+from scipy.stats import expon
 from torch import nn
 
 class TrafficAugmentation(nn.Module):
-    """优化后的GPU加速增强模块"""
+    """PyTorch适配的流量数据增强模块"""
     def __init__(self, max_rtt=0.01, mss=1448, max_length=100):
         super().__init__()
         self.MAX_RTT = max_rtt
@@ -11,70 +12,91 @@ class TrafficAugmentation(nn.Module):
         self.max_length = max_length
         
     def forward(self, x):
-        # 输入x形状: [batch_size, seq_len]
-        # 添加通道维度 [batch_size, seq_len, 1]
-        x = x.unsqueeze(-1)
-        
-        # 生成随机RTT和延迟（向量化操作）
-        batch_size, seq_len, _ = x.shape
-        device = x.device
-        
-        # 生成RTT张量 [batch_size, 1]
-        RTTs = torch.rand(batch_size, 1, device=device) * self.MAX_RTT
-        
-        # 生成延迟张量 [batch_size, seq_len]
-        delays = self._get_delay(batch_size, seq_len, device)
-        
-        # 计算累积延迟 [batch_size, seq_len]
-        cum_delays = torch.cumsum(delays, dim=1)
-        
-        # 生成拆分掩码 [batch_size, seq_len]
-        split_mask = cum_delays <= RTTs
-        
-        # 计算有效包长度（减去40字节头）
-        pkt_lengths = x.squeeze(-1) - 40
-        pkt_lengths = torch.clamp_min(pkt_lengths, 0)  # 确保非负
-        
-        # 计算拆分后的包数量 [batch_size, seq_len]
-        split_counts = (pkt_lengths / self.MSS).ceil().int()
-        
-        # 生成增强后的序列（向量化填充）
-        aug_flow = self._vectorized_augmentation(pkt_lengths, split_mask, split_counts)
-        
-        # 调整形状为 [batch_size, max_length, 1]
-        return aug_flow.unsqueeze(-1)
+           
+        # 执行流量增强
+        aug_flow = self._traffic_augmentation(x)
+        aug_flow_torch = torch.Tensor(aug_flow)
+        final_flow = torch.reshape(aug_flow_torch, shape=(aug_flow_torch.shape[0], aug_flow_torch.shape[1], 1))
+            
+        return final_flow
 
-    def _get_delay(self, batch_size, seq_len, device):
-        """向量化生成延迟"""
-        # 生成延迟分布（90%小延迟，10%固定大延迟）
-        mask = torch.rand(batch_size, seq_len, device=device) < 0.1
-        small_delays = dist.Exponential(rate=1/0.00094557476340694).sample((batch_size, seq_len)).to(device)
-        fixed_delays = torch.full((batch_size, seq_len), 0.21, device=device)
-        delays = torch.where(mask, fixed_delays, small_delays)
-        return delays
+    def _traffic_augmentation(self, x):
+        
+        O = x.numpy()
+        final_lengthflows = []
+        """核心增强逻辑"""
+        for row in O:# 对单独流的处理
+            lengthflow = []
+            fit_lengthflow = []
+            interval = 0
+            i = 0
+            num = len(row) - 1
+            delays = self._get_delay(len(row))
+            
+            while num >= i and row[i] > 0:# 当前流还没读取完毕，或者当前流剩余数据包长度均为0
+                RTT = random.random() * self.MAX_RTT
+                buf = 0
+                while num >= i and RTT > 0:
+                    interval = delays[i]
+                    RTT -= interval
+                    buf += row[i]# 数据预处理时以及减去数据包头长度，因此此处不用再减去40
+                    i += 1
+                    
+                while buf > self.MSS:
+                    lengthflow.append(self.MSS + 40)
+                    buf -= self.MSS
+                    
+                if buf > 0:
+                    lengthflow.append(buf + 40)
+                   
+            # 填充/截断到固定长度
+            fit_lengthflow = self._fit_data(lengthflow)             
 
-    def _vectorized_augmentation(self, pkt_lengths, split_mask, split_counts):
-        """向量化处理拆包逻辑"""
-        batch_size, seq_len = pkt_lengths.shape
-        device = pkt_lengths.device
+            final_lengthflows.append(fit_lengthflow)
         
-        # 计算每个包拆分后的总长度
-        split_lengths = split_counts * self.MSS
-        
-        # 应用RTT拆分条件
-        final_lengths = torch.where(
-            split_mask,
-            split_lengths,
-            pkt_lengths
-        )
-        
-        # 限制最大长度并填充
-        final_lengths = torch.clamp_max(final_lengths + 40, self.MSS + 40)  # 恢复40字节头
-        padded = torch.zeros(batch_size, self.max_length, device=device)
-        seq_len = min(seq_len, self.max_length)
-        padded[:, :seq_len] = final_lengths[:, :seq_len]
-        return padded
+        return final_lengthflows
+
+    def _get_delay(self, size):
+        """生成延迟序列"""
+        delays = []
+        while len(delays) < size:
+            if random.random() < 0.1:
+                delays.append(0.21)
+            else:
+                loc, scale = 1e-06, 0.00094557476340694
+                delays.extend(expon.rvs(loc=loc, scale=scale, size=1))
+        return delays[:size]
+
+    def _fit_data(self, data):
+        """调整序列长度"""
+        if len(data) < self.max_length:
+            data += [0] * (self.max_length - len(data))
+        else:
+            data = data[:self.max_length]
+        return data
 
 class IdentityAugmentation(nn.Module):
+    """原始数据（无增强）"""
+    def __init__(self):
+        super().__init__()
+        
     def forward(self, x):
-        return x.unsqueeze(-1)  # 保持形状一致
+        x = torch.reshape(x, shape=(x.shape[0], x.shape[1], 1))
+        return x  # 直接返回原始输入
+    
+
+
+input = [[46,46,46,46,46,46,46,46,46,46,46,46,46,46,46,46,46,46,46,46,46,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+[46,46,46,46,40,46,46,46,46,46,46,46,46,46,46,46,46,46,46,46,46,46,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+[40,40,40,40,255,40,40,40,40,40,40,40,40,40,40,40,40,40,40,40,40,40,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]]
+
+
+input_torch = torch.Tensor(input)
+
+aug = TrafficAugmentation()
+
+output = aug(input_torch)
+
+
+print(input_torch)
+print(output)
