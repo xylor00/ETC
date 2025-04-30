@@ -2,7 +2,6 @@ import pandas as pd
 from IPhead import Get_headers
 from ngram import create_plevel_feature
 import csv
-from functools import partial
 
 max_length = 100
 

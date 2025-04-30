@@ -9,6 +9,8 @@ import torch.distributed as dist
 
 from torchvision import transforms as T
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 # helper functions
 
 def default(val, def_val):
