@@ -36,7 +36,7 @@ def get_pkts(pcap, label):
                 if ip.len < min_len:
                     continue  # 跳过当前数据包
 
-                pkt_len = ip.len - min_len # 去除数据包头长度
+                pkt_len = max(ip.len - min_len, 1) # 去除数据包头长度(假设空包长度为1，方便后续处理)
 
                 # 转换IP地址为点分十进制格式
                 src_ip = socket.inet_ntoa(ip.src)
