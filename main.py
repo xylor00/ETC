@@ -8,7 +8,7 @@ import multiprocessing
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-categories = ["Chat", "Email", "Video", "Audio"]
+categories = ["Email", "Chat", "Streaming", "File Transfer", "Audio", "Video"]
 
 # 自定义数据集类 --------------------------------------------------
 class CSVDataset(Dataset):
@@ -53,14 +53,25 @@ if __name__ == '__main__':
     # 超参数配置 --------------------------------------------------
     input_size = 256  
     hidden_size = 500
-    num_classes = 4  # 4个类别
+    num_classes = 6  # 6个类别
     num_epochs = 10
-    batch_size = 50
+    batch_size = 100
     learning_rate = 0.001
 
-    # 创建数据集实例
-    train_dataset = CSVDataset('dataset/merge_features.csv')
-    test_dataset = CSVDataset('dataset/merge_features.csv')
+    # 创建完整数据集实例
+    full_dataset = CSVDataset('dataset/merge_features.csv')
+    
+    # 计算划分长度
+    dataset_size = len(full_dataset)
+    train_size = int(0.8 * dataset_size)
+    test_size = dataset_size - train_size
+    
+    # 随机划分数据集（设置随机种子保证可重复性）
+    train_dataset, test_dataset = torch.utils.data.random_split(
+        full_dataset,
+        [train_size, test_size],
+        generator=torch.Generator().manual_seed(42)
+    )
 
     # 创建数据加载器
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, pin_memory=True, num_workers=4, persistent_workers=True)

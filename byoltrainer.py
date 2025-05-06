@@ -9,7 +9,7 @@ import multiprocessing
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-categories = ["Chat", "Email", "Video", "Audio"]
+categories = ["Email", "Chat", "Streaming", "File Transfer", "Audio", "Video"]
 
 # 自定义数据集类 --------------------------------------------------
 class CSVDataset(Dataset):
@@ -59,7 +59,7 @@ if __name__ == '__main__':
     ).to(device)
 
     num_epochs = 10
-    batch_size=50
+    batch_size=100
     train_dataset = CSVDataset('dataset/flow_sequences.csv')
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, pin_memory=True, num_workers=4, persistent_workers=True)
     total_step = len(train_loader) 
