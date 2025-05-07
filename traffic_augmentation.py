@@ -48,11 +48,11 @@ class TrafficAugmentation(nn.Module):
                     j += 1
                 
                 while buf > self.MSS:
-                    lengthflow = torch.cat((lengthflow, torch.tensor([self.MSS + 40], device=device)), 0)
+                    lengthflow = torch.cat((lengthflow, torch.tensor([self.MSS], device=device)), 0)
                     buf -= self.MSS
 
                 if buf > 0:
-                    lengthflow = torch.cat((lengthflow, torch.tensor([buf + 40], device=device)), 0)
+                    lengthflow = torch.cat((lengthflow, torch.tensor([buf], device=device)), 0)
 
             # 填充/截断到固定长度
             fit_lengthflow = F.pad(lengthflow[:seq_len], (0, max(seq_len - lengthflow.size(0), 0)))
