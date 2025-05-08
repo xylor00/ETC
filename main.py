@@ -2,13 +2,11 @@ import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 import pandas as pd
-from sklearn.preprocessing import LabelEncoder
-import torchvision.transforms as transforms  # 图像变换工具
 import multiprocessing
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-categories = ["Email", "Chat", "Streaming", "File Transfer", "Audio", "Video"]
+categories = ["Email", "Chat", "Streaming", "File Transfer", "VoIP", "P2P"]
 
 # 自定义数据集类 --------------------------------------------------
 class CSVDataset(Dataset):
@@ -59,7 +57,7 @@ if __name__ == '__main__':
     learning_rate = 0.001
 
     # 创建完整数据集实例
-    full_dataset = CSVDataset('dataset/merge_features.csv')
+    full_dataset = CSVDataset('features/merge_features.csv')
     
     # 计算划分长度
     dataset_size = len(full_dataset)
@@ -99,7 +97,7 @@ if __name__ == '__main__':
             optimizer.step()       # 更新模型参数
             
             # 每2批打印训练信息
-            if (i+1) % 2 == 0:
+            if (i+1) % 10 == 0:
                 print(f'Epoch [{epoch+1}/{num_epochs}], Step [{i+1}/{total_step}], Loss: {loss.item()}')
 
     # 测试时添加解码显示 --------------------------------------------------

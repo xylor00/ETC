@@ -23,10 +23,10 @@ class FeatureFusion(nn.Module):
         return fused
 
 # 确定特征维度
-f_first_row = pd.read_csv('dataset/flevel_features.csv', skiprows=1, nrows=1, header=None)
+f_first_row = pd.read_csv('features/flevel_features.csv', skiprows=1, nrows=1, header=None)
 flevel_dim = f_first_row.shape[1] - 1  # 最后一列是标签
 
-p_first_row = pd.read_csv('dataset/plevel_features.csv', skiprows=1, nrows=1, header=None)
+p_first_row = pd.read_csv('features/plevel_features.csv', skiprows=1, nrows=1, header=None)
 plevel_dim = p_first_row.shape[1] - 1  # 原代码中去掉了最后一列
 
 # 初始化融合模块
@@ -34,8 +34,8 @@ fusion_model = FeatureFusion(flevel_dim=flevel_dim, plevel_dim=plevel_dim)
 
 # 分块处理
 chunk_size = 1000  # 根据内存调整块大小
-f_reader = pd.read_csv('dataset/flevel_features.csv', skiprows=1, header=None, chunksize=chunk_size)
-p_reader = pd.read_csv('dataset/plevel_features.csv', skiprows=1, header=None, chunksize=chunk_size)
+f_reader = pd.read_csv('features/flevel_features.csv', skiprows=1, header=None, chunksize=chunk_size)
+p_reader = pd.read_csv('features/plevel_features.csv', skiprows=1, header=None, chunksize=chunk_size)
 
 with torch.no_grad():
     first_chunk = True
@@ -61,5 +61,5 @@ with torch.no_grad():
         # 写入文件（首次包含表头，后续追加）
         mode = 'w' if first_chunk else 'a'
         header = first_chunk
-        df_merge_block.to_csv('dataset/merge_features.csv', index=False, mode=mode, header=header)
+        df_merge_block.to_csv('features/merge_features.csv', index=False, mode=mode, header=header)
         first_chunk = False

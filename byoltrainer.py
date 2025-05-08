@@ -9,7 +9,7 @@ import multiprocessing
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-categories = ["Email", "Chat", "Streaming", "File Transfer", "Audio", "Video"]
+categories = ["Email", "Chat", "Streaming", "File Transfer", "VoIP", "P2P"]
 
 # 自定义数据集类 --------------------------------------------------
 class CSVDataset(Dataset):
@@ -60,7 +60,7 @@ if __name__ == '__main__':
 
     num_epochs = 10
     batch_size=100
-    train_dataset = CSVDataset('dataset/flow_sequences.csv')
+    train_dataset = CSVDataset('features/flow_sequences.csv')
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, pin_memory=True, num_workers=4, persistent_workers=True)
     total_step = len(train_loader) 
 
@@ -80,7 +80,7 @@ if __name__ == '__main__':
             opt.step()
             
             learner.update_moving_average() # 目标网络参数指数移动平均更新
-            if (i+1) % 2 == 0:
+            if (i+1) % 10 == 0:
                 print(f'Epoch [{epoch+1}/{num_epochs}], Step [{i+1}/{total_step}], Loss: {loss.item()}')  # 输出损失值
                 
     # 确保模型切换到评估模式（关闭训练专用层）
@@ -121,7 +121,7 @@ if __name__ == '__main__':
     df['label'] = pd.Series(all_labels).map(lambda x: categories[x])
 
     # 保存到CSV文件
-    df.to_csv('dataset/flevel_features.csv', index=False)
+    df.to_csv('features/flevel_features.csv', index=False)
 
     """
     # 存储模型

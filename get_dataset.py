@@ -8,7 +8,7 @@ from ngram import create_plevel_feature
 max_byte_len = 12
 min_tcp_len = 40
 min_udp_len = 28
-categories = ["Email", "Chat", "Streaming", "File Transfer", "Audio", "Video"]
+categories = ["Email", "Chat", "Streaming", "File Transfer", "VoIP", "P2P"]
 
 def stream_packets(pcap, label):
     """流式生成器: 累积整个pcap的流, 处理完毕后统一过滤并yield"""
@@ -71,16 +71,16 @@ def process_all_pcaps(output_flow_csv, output_plevel_csv, max_length=100):
             'Chat': 'dataset_pcap/Chat',
             'Email': 'dataset_pcap/Email',
             'Streaming': 'dataset_pcap/Streaming',
-            'File Transfer': 'dataset_pcap/FileTransfer',
-            'Audio': 'dataset_pcap/Audio',
-            'Video': 'dataset_pcap/Video'
+            'File Transfer': 'dataset_pcap/File Transfer',
+            'VoIP': 'dataset_pcap/VoIP',
+            'P2P': 'dataset_pcap/P2P'
         }
 
         # 收集所有pcap文件路径
         pcap_files = []
         for label, dir_path in category_dirs.items():
             if not os.path.exists(dir_path):
-                print(f"警告：{dir_path} 目录不存在，跳过")
+                print(f"warning: {dir_path} directory does not exist, skip")
                 continue
                 
             for filename in os.listdir(dir_path):
@@ -103,14 +103,16 @@ def process_all_pcaps(output_flow_csv, output_plevel_csv, max_length=100):
                         plevel_feature = create_plevel_feature(flow_data['byte'])
                         plevel_writer.writerow(plevel_feature + [label])
             except Exception as e:
-                print(f"处理文件 {file_path} 时出错: {str(e)}")
+                print(f"Error {str(e)} occurred while processing file {file_path}")
                 continue
+            
+            print(f"{file_path} finish")
 
             
 
 if __name__ == '__main__':
     # 处理所有pcap文件并生成CSV                    
     process_all_pcaps(
-        output_flow_csv='dataset/flow_sequences.csv',
-        output_plevel_csv='dataset/plevel_features.csv'
+        output_flow_csv='features/flow_sequences.csv',
+        output_plevel_csv='features/plevel_features.csv'
     )
