@@ -51,8 +51,8 @@ if __name__ == '__main__':
     # 超参数配置 --------------------------------------------------
     input_size = 256  
     hidden_size = 500
-    num_classes = 6  # 6个类别
-    num_epochs = 10
+    num_classes = len(categories)  # 6个类别
+    num_epochs = 100
     batch_size = 100
     learning_rate = 0.001
 

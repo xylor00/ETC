@@ -1,6 +1,5 @@
 import torch
 import random
-from scipy.stats import expon
 from torch import nn
 from torch.distributions import Exponential
 import torch.nn.functional as F
