@@ -6,8 +6,6 @@ import csv
 from ngram import create_plevel_feature
 
 max_byte_len = 12
-min_tcp_len = 40
-min_udp_len = 28
 categories = ["Email", "Chat", "Streaming", "File Transfer", "VoIP", "P2P"]
 
 def stream_packets(pcap, label):
@@ -25,10 +23,6 @@ def stream_packets(pcap, label):
         if not isinstance(trans_proto, (dpkt.tcp.TCP, dpkt.udp.UDP)):
             continue
         
-        min_len = min_tcp_len if isinstance(trans_proto, dpkt.tcp.TCP) else min_udp_len
-        if ip.len < min_len:#排除掉长度小于包头的数据包（此类数据包可能已损坏）
-            continue
-        
         # 构造五元组键（包含label）
         flow_key = (
             'TCP' if isinstance(trans_proto, dpkt.tcp.TCP) else 'UDP',
@@ -40,8 +34,23 @@ def stream_packets(pcap, label):
         )
         
         # 提取特征
-        pkt_len = max(ip.len - min_len, 1)
-        raw_byte = ip.pack()[:max_byte_len]
+        # 提取应用层数据长度
+        if isinstance(trans_proto, dpkt.tcp.TCP):
+            tcp_header_len = trans_proto.off * 4
+            app_data_len = ip.len - (ip.hl * 4) - tcp_header_len
+        else:
+            udp_header_len = 8
+            app_data_len = ip.len - (ip.hl * 4) - udp_header_len
+        pkt_len = max(app_data_len, 1)# 确保包长度至少为1
+        
+        # 计算 IP 头实际长度（单位：字节）
+        ip_header_length = ip.hl * 4  # hl 是 32-bit words 的数量
+        
+        # 提取 IP 头的前 12 字节（源IP从第 13 字节开始）
+        ip_header = ip.pack()[:ip_header_length]  # 完整 IP 头（含选项）
+        raw_byte = ip_header[:max_byte_len]  # 前 12 字节（不包含源IP和目的IP）
+        
+        # 填充或截断到固定长度 12
         byte_features = list(raw_byte) + [0] * (max_byte_len - len(raw_byte))
         
         # 累积到流字典
