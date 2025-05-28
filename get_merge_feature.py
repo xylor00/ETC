@@ -7,6 +7,7 @@ class FeatureFusion(nn.Module):
     """基于注意力的特征融合模块"""
     def __init__(self, flevel_dim, plevel_dim, hidden_dim=128, align_dim=256):
         super().__init__()
+        self.f_proj = nn.Linear(flevel_dim, align_dim)
         self.p_proj = nn.Linear(plevel_dim, align_dim)
         self.attention = nn.Sequential(
             nn.Linear(align_dim * 2, hidden_dim),
@@ -16,6 +17,7 @@ class FeatureFusion(nn.Module):
         )
         
     def forward(self, f_feat, p_feat):
+        f_feat = self.f_proj(f_feat)
         p_feat = self.p_proj(p_feat)
         combined = torch.cat([f_feat, p_feat], dim=1)
         weights = self.attention(combined)

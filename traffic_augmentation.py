@@ -8,20 +8,21 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class TrafficAugmentation(nn.Module):
     """PyTorch适配的流量数据增强模块"""
-    def __init__(self, max_rtt=0.01, mss=1448, max_length=100):
+    def __init__(self, max_rtt=0.01, original_mss=1448, max_length=100, mean=0, std=1):
         super().__init__()
         self.MAX_RTT = max_rtt
-        self.MSS = mss
+        self.MSS = (original_mss - mean) / (std + 1e-8)
+        self.bufjudge = (0 - mean) / (std + 1e-8)
         self.max_length = max_length
         
     def forward(self, x):
            
         # 执行流量增强
-        aug_flow_torch = self._traffic_augmentation(x)       
+        aug_flow_torch = self._traffic_augmentation(x, bufjudge=self.bufjudge)       
             
         return aug_flow_torch.unsqueeze(-1)
 
-    def _traffic_augmentation(self, x):
+    def _traffic_augmentation(self, x, bufjudge=0):
         # 生成延迟向量
         batch_size, seq_len = x.shape
         delays = self._get_delay(batch_size, seq_len).to(device)
@@ -50,7 +51,7 @@ class TrafficAugmentation(nn.Module):
                     lengthflow = torch.cat((lengthflow, torch.tensor([self.MSS], device=device)), 0)
                     buf -= self.MSS
 
-                if buf > 0:
+                if buf > bufjudge:
                     lengthflow = torch.cat((lengthflow, torch.tensor([buf], device=device)), 0)
 
             # 填充/截断到固定长度

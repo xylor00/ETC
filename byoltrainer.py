@@ -7,89 +7,147 @@ from torch.utils.data import Dataset, DataLoader
 import numpy as np
 import multiprocessing
 from torch.utils.data import random_split
+from torch.optim.lr_scheduler import OneCycleLR
 
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-categories = ["Email", "Chat", "Streaming", "File Transfer", "VoIP"]
+categories = ["socialapp", "chat", "email", "file", "streaming", "VoIP"]
 
-# 数据集类（含标准化）
-class CSVDataset(Dataset):
+# 数据集类（不含标准化）    
+class RawDataset(Dataset):
     def __init__(self, csv_path):
         self.data = pd.read_csv(csv_path, skiprows=1, header=None)
-        features = self.data.iloc[:, :-1].values.astype('float32')
-        labels = self.data.iloc[:, -1].values
-        
-        # 计算训练集的均值和标准差（实际使用时应仅在训练集计算）
-        self.mean = features.mean(axis=0)
-        self.std = features.std(axis=0)
-        self.features = (features - self.mean) / (self.std + 1e-8)
-        
-        self.labels = [categories.index(lbl) for lbl in labels]  # 提前转换标签
+        self.features = self.data.iloc[:, :-1].values.astype('float32')
+        self.labels = self.data.iloc[:, -1].values
+
+    def __len__(self): 
+        return len(self.data)
+    def __getitem__(self, idx): 
+        return self.features[idx], self.labels[idx]
+
+# 分割数据集类（含标准化） 
+class StandardizedDataset(Dataset):
+    def __init__(self, raw_dataset, indices, mean, std):
+        self.features = (raw_dataset.features[indices] - mean) / (std + 1e-8)
+        self.labels = [categories.index(raw_dataset.labels[i]) for i in indices]
 
     def __len__(self):
-        return len(self.data)
+        return len(self.labels)
 
     def __getitem__(self, idx):
-        return torch.tensor(self.features[idx]), torch.tensor(self.labels[idx])
-    
+        return (
+            torch.tensor(self.features[idx]),
+            torch.tensor(self.labels[idx])
+        )
 
+#完整数据集类        
+class FullDataset(Dataset):
+    def __init__(self, raw_dataset, mean, std):
+        self.raw_dataset = raw_dataset
+        self.mean = mean
+        self.std = std
+        
+    def __len__(self):
+        return len(self.raw_dataset)
+        
+    def __getitem__(self, idx):
+        x = (self.raw_dataset.features[idx] - self.mean) / (self.std + 1e-8)
+        y = categories.index(self.raw_dataset.labels[idx])
+        return torch.tensor(x), torch.tensor(y)
     
 if __name__ == '__main__':
     multiprocessing.freeze_support()
-    # 模拟拆包粘包增强
-    aug_1 = TrafficAugmentation()
-    aug_2 = IdentityAugmentation()
     
     # 超参数
-    num_epochs = 50
-    batch_size=100
+    num_epochs = 100
+    batch_size=256
+    lr = 2e-5
 
-    # 划分训练集和验证集（8:2比例）
-    full_dataset = CSVDataset('features/flow_sequences.csv')
-    train_size = int(0.8 * len(full_dataset))
-    val_size = len(full_dataset) - train_size
+    # 加载原始数据
+    full_raw = RawDataset('features/flow_sequences.csv')
     
-    train_dataset, val_dataset = random_split(
-        full_dataset, [train_size, val_size], 
-        generator=torch.Generator().manual_seed(42)
+    train_size = int(0.8 * len(full_raw))
+    val_size = len(full_raw) - train_size
+
+    # 分割数据集
+    train_subset, val_subset = random_split(
+        full_raw, [train_size, val_size],
+        generator=torch.Generator().manual_seed(37)
     )
     
+    # 获取各子集的索引
+    train_indices = train_subset.indices
+    val_indices = val_subset.indices
+
+    # 计算训练集的均值和标准差（仅使用训练数据）
+    train_features = full_raw.features[train_indices]
+    mean = train_features.mean()        # 标量（全局均值）
+    std = train_features.std()          # 标量（全局标准差）
+
+    # 创建标准化数据集
+    train_dataset = StandardizedDataset(full_raw, train_indices, mean, std)
+    val_dataset = StandardizedDataset(full_raw, val_indices, mean, std)
+    
+    # 数据加载器
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, pin_memory=True, num_workers=4, persistent_workers=True)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, pin_memory=True, num_workers=4, persistent_workers=True)
-
+    
+    # 创建用于特征提取的数据加载器（不打乱顺序）
+    full_dataset = FullDataset(full_raw, mean, std)
+    feature_loader = DataLoader(full_dataset, batch_size=batch_size, shuffle=False, pin_memory=True, num_workers=4, persistent_workers=True)
 
     # 初始化GRU骨干网络
     gru_backbone = GRUBackbone(
         input_dim=1,          # 假设输入是单变量时间序列
-        hidden_dim=128,
-        output_dim=256        # 需与projection_size一致
+        hidden_dim=64,
+        output_dim=128        # 需与projection_size一致
     ).to(device)
 
+    # 模拟拆包粘包增强
+    aug_1 = TrafficAugmentation(mean=mean.item(), std=std.item())
+    aug_2 = IdentityAugmentation()
+    
     # 创建BYOL实例
     learner = BYOL(
         net=gru_backbone,
         input_dim=100,
         augment_fn=aug_1,
         augment_fn2=aug_2,
-        projection_size=256,
-        projection_hidden_size=512
+        projection_size=128,
+        projection_hidden_size=256,
+        moving_average_decay=0.996  # 提高EMA动量（默认0.99可能过低）
     ).to(device)
 
-    # 创建优化器
-    optimizer = torch.optim.Adam(learner.parameters(), lr=0.001)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=3)  # 动态学习率
+    # 修改优化器为AdamW（更稳定的权重衰减实现）
+    optimizer = torch.optim.AdamW(
+        learner.parameters(),
+        lr=lr,                  # 设置基础学习率
+        weight_decay=1e-4,
+        betas=(0.9, 0.98)
+    )
 
+    scheduler = OneCycleLR(
+        optimizer,
+        max_lr=lr*15,      # 峰值学习率
+        total_steps=num_epochs,
+        pct_start=0.1,     # warmup阶段
+        anneal_strategy='cos',
+        div_factor=25,     # 初始学习率与峰值比率
+        final_div_factor=1e4
+    )
+    
     # 早停参数
     best_avg_val_loss = 100
-    patience = 5
+    patience = 10
     no_improve_epochs = 0
     stop_training = False
     
     for epoch in range(num_epochs):
         # 检查早停条件
         if stop_training:
-            print(f"Early stopping at epoch {epoch+1}")
+            print(f"Early stopping at epoch {epoch}", flush=True)
+            print(f"get model at epoch {epoch-patience}", flush=True)
             break
         
         # 训练阶段
@@ -106,6 +164,7 @@ if __name__ == '__main__':
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            torch.nn.utils.clip_grad_norm_(learner.parameters(), max_norm=1.0)  # 限制梯度范数
             learner.update_moving_average() # 目标网络参数指数移动平均更新
             
             train_loss.append(loss.item())
@@ -136,21 +195,18 @@ if __name__ == '__main__':
             if no_improve_epochs >= patience:
                 stop_training = True            
             
-        scheduler.step(avg_val_loss)  # 调整学习率
-        
+        scheduler.step()  # 执行调度
+            
         # 打印信息
         print(f"Epoch {epoch+1}: "
               f"Train Loss={avg_train_loss:.4f}, "
               f"Val Loss={avg_val_loss:.4f}, "
-              f"Best Val Loss={best_avg_val_loss:.4f}")
+              f"Best Val Loss={best_avg_val_loss:.4f}", flush=True)
             
                 
     # 确保模型切换到评估模式用于处理数据（关闭训练专用层）
     gru_backbone.load_state_dict(torch.load('model/improved-net.pth'))
     gru_backbone.eval()
-
-    # 创建用于特征提取的数据加载器（不打乱顺序）
-    feature_loader = DataLoader(full_dataset, batch_size=batch_size, shuffle=False, pin_memory=True, num_workers=4, persistent_workers=True)
 
     # 存储所有特征和标签的容器
     all_features = []

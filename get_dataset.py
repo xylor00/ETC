@@ -3,10 +3,17 @@ import dpkt
 import socket
 from collections import defaultdict
 import csv
+import numpy as np
 from ngram import create_plevel_feature
+from imblearn.over_sampling import SMOTE
+from sklearn.preprocessing import LabelEncoder
+import numpy as np
+from collections import Counter
+from imblearn.pipeline import Pipeline
+from imblearn.under_sampling import RandomUnderSampler
 
 max_byte_len = 12
-categories = ["Email", "Chat", "Streaming", "File Transfer", "VoIP", "P2P"]
+categories = ["socialapp", "chat", "email", "file", "streaming", "VoIP"]
 
 def stream_packets(pcap, label):
     """流式生成器: 累积整个pcap的流, 处理完毕后统一过滤并yield"""
@@ -30,11 +37,11 @@ def stream_packets(pcap, label):
             socket.inet_ntoa(ip.dst),
             trans_proto.sport,
             trans_proto.dport,
-            label  # 标签作为五元组的一部分
+            label
         )
         
         # 提取特征
-        # 提取应用层数据长度
+        # 提取应用层数据长度        
         if isinstance(trans_proto, dpkt.tcp.TCP):
             tcp_header_len = trans_proto.off * 4
             app_data_len = ip.len - (ip.hl * 4) - tcp_header_len
@@ -64,63 +71,149 @@ def stream_packets(pcap, label):
             del flows[flow_key]  # 释放内存
 
 def process_all_pcaps(output_flow_csv, output_plevel_csv, max_length=100):
-    """主处理函数: 逐个pcap处理, 写入CSV"""
+    """主处理函数: 收集数据后重采样"""
+    # 收集原始数据
+    all_flow_features = []
+    all_plevel_features = []
+    all_labels = []
+    
+    category_dirs = {
+        #'aim': 'dataset_pcap/aim',
+        'socialapp': 'dataset_pcap/socialapp',
+        'chat': 'dataset_pcap/chat',
+        'email': 'dataset_pcap/email',
+        #'facebook': 'dataset_pcap/facebook',
+        'file': 'dataset_pcap/file',
+        #'ftps': 'dataset_pcap/ftps',
+        #'gmail': 'dataset_pcap/gmail',
+        #'hangouts': 'dataset_pcap/hangouts',
+        #'icq': 'dataset_pcap/icq',
+        #'netflix': 'dataset_pcap/netflix',
+        'streaming': 'dataset_pcap/streaming',
+        #'scp': 'dataset_pcap/scp',
+        #'sftp': 'dataset_pcap/sftp',
+        #'skype': 'dataset_pcap/skype',
+        #'spotify': 'dataset_pcap/spotify',
+        #'vimeo': 'dataset_pcap/vimeo',
+        'VoIP': 'dataset_pcap/VoIP',
+        #'youtube': 'dataset_pcap/youtube'
+    }
+
+    pcap_files = []
+    for label, dir_path in category_dirs.items():
+        if not os.path.exists(dir_path):
+            print(f"warning: {dir_path} directory does not exist, skip", flush=True)
+            continue
+        
+        for filename in os.listdir(dir_path):
+            if filename.endswith('.pcap'):
+                file_path = os.path.join(dir_path, filename)
+                pcap_files.append((file_path, label))
+
+    # 处理每个pcap文件
+    for file_path, label in pcap_files:
+        try:
+            with open(file_path, 'rb') as f:
+                pcap = dpkt.pcap.Reader(f)
+                # 处理当前pcap的所有流
+                for flow_key, flow_data in stream_packets(pcap, label):
+                    # 长度序列提取（填充/截断到max_length）
+                    lengths = flow_data['lengths'][:max_length] + [0] * (max_length - len(flow_data['lengths']))
+                    all_flow_features.append(lengths)
+                    
+                    # 包特征处理
+                    plevel_feature = create_plevel_feature(flow_data['byte'])
+                    all_plevel_features.append(plevel_feature)
+                    
+                    all_labels.append(label)
+        except Exception as e:
+            print(f"Error processing {file_path}: {str(e)}", flush=True)
+            continue
+        
+        print(f"{file_path} finish", flush=True)
+        
+        label_counter = Counter(all_labels)
+    
+    print("Original sample distribution:", label_counter)
+    
+    # 平衡数据集
+    le = LabelEncoder()
+    all_labels_numeric = le.fit_transform(all_labels)
+    
+    # 创建复合特征矩阵（保持结构分离）
+    X_compound = np.hstack([
+        np.array(all_flow_features, dtype=np.float64),   # shape: (n, 100)
+        np.array(all_plevel_features)  # shape: (n, 165)
+    ])
+    
+    # 初始化SMOTE（自动处理所有类别到target_samples个样本）
+    # 设置目标样本数
+    target_samples = 8000
+    valid_categories = []
+
+    # 筛选有效类别（至少2个样本）
+    for cat in categories:
+        if label_counter.get(cat, 0) >= 2:
+            valid_categories.append(cat)
+    
+    # 配置组合采样器
+    over = SMOTE(
+        sampling_strategy={le.transform([cat])[0]: target_samples 
+        for cat in valid_categories 
+        if label_counter[cat] < target_samples
+    },
+    k_neighbors=5
+    )
+
+    under = RandomUnderSampler(
+        sampling_strategy={le.transform([cat])[0]: target_samples 
+        for cat in valid_categories 
+        if label_counter[cat] > target_samples
+    })
+
+    pipeline = Pipeline([('over', over), ('under', under)])
+
+    try:
+        X_resampled, y_resampled = pipeline.fit_resample(X_compound, all_labels_numeric)
+    except ValueError as e:
+        print(f"sampling error: {str(e)}")
+        return
+    
+    # 拆分回原始特征格式
+    flow_resampled = X_resampled[:, :max_length]  # 前100列是flow特征
+    plevel_resampled = X_resampled[:, max_length:] # 后165列是plevel特征
+    
+    # Flow特征特殊处理
+    flow_resampled = np.round(flow_resampled).astype(int)  # 四舍五入取整
+    flow_resampled = np.clip(flow_resampled, 0, 1448)     # 限制范围
+    
+    # 转换回文本标签
+    labels_resampled = le.inverse_transform(y_resampled)
+    
+    # 打乱顺序
+    shuffled_idx = np.random.permutation(len(flow_resampled))
+    flow_resampled = flow_resampled[shuffled_idx]
+    plevel_resampled = plevel_resampled[shuffled_idx]
+    labels_resampled = labels_resampled[shuffled_idx]
+    
+
+    # 写入CSV（保持原有格式不变）
     with open(output_flow_csv, 'w', newline='') as f_flow, \
          open(output_plevel_csv, 'w', newline='') as f_plevel:
         
         flow_writer = csv.writer(f_flow)
         plevel_writer = csv.writer(f_plevel)
         
-        # 写入CSV头
+        # 写CSV头
         flow_writer.writerow([f'feature_{i}' for i in range(max_length)] + ['label'])
         plevel_writer.writerow([f'feature_{i}' for i in range(165)] + ['label'])
+        
+        # 写入数据
+        for flow_feat, plevel_feat, label in zip(flow_resampled, plevel_resampled, labels_resampled):
+            flow_writer.writerow(list(flow_feat) + [label])
+            plevel_writer.writerow(list(plevel_feat) + [label])
 
-        # 配置类别目录（可根据实际路径修改）
-        category_dirs = {
-            'Chat': 'dataset_pcap/Chat',
-            'Email': 'dataset_pcap/Email',
-            'Streaming': 'dataset_pcap/Streaming',
-            'File Transfer': 'dataset_pcap/File Transfer',
-            'VoIP': 'dataset_pcap/VoIP',
-            'P2P': 'dataset_pcap/P2P'
-        }
-
-        # 收集所有pcap文件路径
-        pcap_files = []
-        for label, dir_path in category_dirs.items():
-            if not os.path.exists(dir_path):
-                print(f"warning: {dir_path} directory does not exist, skip")
-                continue
-                
-            for filename in os.listdir(dir_path):
-                if filename.endswith('.pcap'):
-                    file_path = os.path.join(dir_path, filename)
-                    pcap_files.append((file_path, label))
-
-        # 处理每个pcap文件
-        for file_path, label in pcap_files:
-            try:
-                with open(file_path, 'rb') as f:
-                    pcap = dpkt.pcap.Reader(f)
-                    # 处理当前pcap的所有流
-                    for flow_key, flow_data in stream_packets(pcap, label):
-                        # 流级特征（填充/截断到max_length）
-                        lengths = flow_data['lengths'][:max_length] + [0] * (max_length - len(flow_data['lengths']))
-                        flow_writer.writerow(lengths + [label])
-                        
-                        # 包级特征
-                        plevel_feature = create_plevel_feature(flow_data['byte'])
-                        plevel_writer.writerow(plevel_feature + [label])
-            except Exception as e:
-                print(f"Error {str(e)} occurred while processing file {file_path}")
-                continue
-            
-            print(f"{file_path} finish")
-
-            
-
-if __name__ == '__main__':
-    # 处理所有pcap文件并生成CSV                    
+if __name__ == '__main__':                 
     process_all_pcaps(
         output_flow_csv='features/flow_sequences.csv',
         output_plevel_csv='features/plevel_features.csv'
