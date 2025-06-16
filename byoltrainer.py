@@ -99,9 +99,9 @@ if __name__ == '__main__':
 
     # 初始化GRU骨干网络
     gru_backbone = GRUBackbone(
-        input_dim=1,          # 假设输入是单变量时间序列
+        input_dim=1,          
         hidden_dim=64,
-        output_dim=128        # 需与projection_size一致
+        output_dim=128        
     ).to(device)
 
     # 模拟拆包粘包增强
@@ -116,13 +116,12 @@ if __name__ == '__main__':
         augment_fn2=aug_2,
         projection_size=128,
         projection_hidden_size=256,
-        moving_average_decay=0.996  # 提高EMA动量（默认0.99可能过低）
+        moving_average_decay=0.996  # EMA动量（默认0.99可能过低）
     ).to(device)
 
-    # 修改优化器为AdamW（更稳定的权重衰减实现）
     optimizer = torch.optim.AdamW(
         learner.parameters(),
-        lr=lr,                  # 设置基础学习率
+        lr=lr,                  # 基础学习率
         weight_decay=1e-4,
         betas=(0.9, 0.98)
     )

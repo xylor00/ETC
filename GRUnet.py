@@ -5,7 +5,7 @@ class GRUBackbone(nn.Module):
         self,
         input_dim=1,       # 输入特征维度（如传感器通道数）
         hidden_dim=64,    # GRU隐藏层维度
-        num_layers=3,      # GRU层数
+        num_layers=5,      # GRU层数
         output_dim=128,    # 最终输出维度（需与BYOL投影头匹配）
         bidirectional=True, # 是否双向GRU
         dropout=0.2  # dropout参数
