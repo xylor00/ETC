@@ -5,13 +5,16 @@ from collections import defaultdict
 import csv
 import numpy as np
 import math
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import IncrementalPCA
+from scipy.sparse import csr_matrix, vstack
 from imblearn.pipeline import Pipeline
 from imblearn.over_sampling import SMOTE
 from imblearn.under_sampling import RandomUnderSampler
 from collections import Counter
-from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+import joblib
+import warnings
+warnings.filterwarnings("ignore")
 
 # 根据论文修改的参数
 MAX_PACKETS = 20       # 每个流取前20个包
@@ -20,6 +23,7 @@ ONE_HOT_DIM = 256      # 字节值one-hot编码尺寸 (0-255)
 POS_ENCODING_DIM = 256  # 位置编码维度 (必须与ONE_HOT_DIM相同)
 categories = ["socialapp", "chat", "email", "file", "streaming", "VoIP"]
 TARGET_DIM = 128       # 目标降维维度
+BATCH_SIZE = 1500       # 批处理大小
 
 # 预计算位置编码矩阵 (位置0-39, 维度256)
 def get_positional_encoding(max_len=MAX_BYTES, d_model=POS_ENCODING_DIM):
@@ -137,20 +141,20 @@ def length_to_onehot(length):
     onehot[idx] = 1
     return onehot
 
-def process_all_pcaps(output_flow_csv, output_plevel_csv):
+def process_all_pcaps(output_flevel_csv, output_plevel_csv):
     """主处理函数: 收集数据后输出到CSV文件"""
     # 收集原始数据
-    all_flevel_features = []  # 流级特征 (每个样本展平为30020维)
-    all_plevel_features = []  # 包级特征 (每个样本展平为204800维)
+    all_flevel_features = []  # 流级特征 (降维后)
+    all_plevel_features = []  # 包级特征 (降维后)
     all_labels = []
     
     category_dirs = {
-        #'socialapp': 'dataset_pcap/socialapp',
-        #'chat': 'dataset_pcap/chat',
-        #'email': 'dataset_pcap/email',
-        #'file': 'dataset_pcap/file',
-        #'streaming': 'dataset_pcap/streaming',
-        #'VoIP': 'dataset_pcap/VoIP'
+        'socialapp': 'dataset_pcap/socialapp',
+        'chat': 'dataset_pcap/chat',
+        'email': 'dataset_pcap/email',
+        'file': 'dataset_pcap/file',
+        'streaming': 'dataset_pcap/streaming',
+        'VoIP': 'dataset_pcap/VoIP'
     }
 
     pcap_files = []
@@ -164,6 +168,16 @@ def process_all_pcaps(output_flow_csv, output_plevel_csv):
                 file_path = os.path.join(dir_path, filename)
                 pcap_files.append((file_path, label))
 
+    # 初始化增量PCA
+    flevel_ipca = IncrementalPCA(n_components=TARGET_DIM)
+    plevel_ipca = IncrementalPCA(n_components=TARGET_DIM)
+    
+    # 初始化批次缓存
+    batch_flevel = []
+    batch_plevel = []
+    batch_labels = []
+    batch_counter = 0
+    
     # 处理每个pcap文件
     for file_path, label in pcap_files:
         try:
@@ -195,52 +209,63 @@ def process_all_pcaps(output_flow_csv, output_plevel_csv):
                         encoded = apply_positional_encoding(pkt_bytes)
                         plevel_flat.extend(encoded)
                     
-                    all_flevel_features.append(flevel_features)
-                    all_plevel_features.append(plevel_flat)
-                    all_labels.append(label)
+                    # 转换为稀疏矩阵并添加到批次
+                    batch_flevel.append(csr_matrix(flevel_features))
+                    batch_plevel.append(csr_matrix(plevel_flat))
+                    batch_labels.append(label)
+                    batch_counter += 1
+                    
+                    # 当批次达到预定大小时处理批次
+                    if batch_counter >= BATCH_SIZE:
+                        process_batch(
+                            batch_flevel, batch_plevel, batch_labels,
+                            all_flevel_features, all_plevel_features, all_labels,
+                            flevel_ipca, plevel_ipca
+                        )
+                        # 清空批次
+                        batch_flevel = []
+                        batch_plevel = []
+                        batch_labels = []
+                        batch_counter = 0
         except Exception as e:
             print(f"Error processing {file_path}: {str(e)}", flush=True)
             continue
         
         print(f"{file_path} finish", flush=True)
     
+    # 处理剩余批次
+    if batch_counter > 0:
+        process_batch(
+            batch_flevel, batch_plevel, batch_labels,
+            all_flevel_features, all_plevel_features, all_labels,
+            flevel_ipca, plevel_ipca
+        )
+    
+    # 检查是否有有效数据
+    if not all_flevel_features:
+        print("No valid data processed. Exiting.")
+        return
+    
     # 转换为NumPy数组
-    all_flevel_features = np.array(all_flevel_features)
-    all_plevel_features = np.array(all_plevel_features)
+    all_flevel_features = np.vstack(all_flevel_features)
+    all_plevel_features = np.vstack(all_plevel_features)
     all_labels = np.array(all_labels)
     
-    print(f"Original flow features shape: {all_flevel_features.shape}")
-    print(f"Original packet features shape: {all_plevel_features.shape}")
+    print(f"Flow features shape after reduction: {all_flevel_features.shape}", flush=True)
+    print(f"Packet features shape after reduction: {all_plevel_features.shape}", flush=True)
     
-    # ===== 先进行特征降维 =====
-    print("Applying dimensionality reduction...")
+    # ===== 拼接特征并重采样 =====
+    X_reduced = np.hstack([all_flevel_features, all_plevel_features])
     
-    # 对流级特征降维
-    flow_scaler = StandardScaler()
-    flow_features_scaled = flow_scaler.fit_transform(all_flevel_features)
-    flow_pca = PCA(n_components=TARGET_DIM)
-    flow_reduced = flow_pca.fit_transform(flow_features_scaled)
-    print(f"Flow features reduced to {flow_reduced.shape[1]} dimensions")
-    
-    # 对包级特征降维
-    plevel_scaler = StandardScaler()
-    plevel_features_scaled = plevel_scaler.fit_transform(all_plevel_features)
-    plevel_pca = PCA(n_components=TARGET_DIM)
-    plevel_reduced = plevel_pca.fit_transform(plevel_features_scaled)
-    print(f"Packet features reduced to {plevel_reduced.shape[1]} dimensions")
-    
-    # 拼接降维后的特征
-    X_reduced = np.hstack([flow_reduced, plevel_reduced])
-    
-    # ===== 再进行重采样 =====
+    # ===== 重采样 =====
     label_counter = Counter(all_labels)
-    print("Original sample distribution:", label_counter)
+    print("Original sample distribution:", label_counter, flush=True)
     
     le = LabelEncoder()
     all_labels_numeric = le.fit_transform(all_labels)
     
     # 设置目标样本数
-    target_samples = 500
+    target_samples = 4000
     valid_categories = []
 
     # 筛选有效类别（至少2个样本）
@@ -249,73 +274,109 @@ def process_all_pcaps(output_flow_csv, output_plevel_csv):
             valid_categories.append(cat)
     
     # 配置组合采样器
-    over = SMOTE(
-        sampling_strategy={le.transform([cat])[0]: target_samples 
-        for cat in valid_categories 
-        if label_counter[cat] < target_samples
-    },
-    k_neighbors=5
-    )
-
-    under = RandomUnderSampler(
-        sampling_strategy={le.transform([cat])[0]: target_samples 
-        for cat in valid_categories 
-        if label_counter[cat] > target_samples
-    })
-
-    pipeline = Pipeline([('over', over), ('under', under)])
-
-    try:
-        X_resampled, y_resampled = pipeline.fit_resample(X_reduced, all_labels_numeric)
-    except ValueError as e:
-        print(f"sampling error: {str(e)}")
-        return
+    over_strategy = {le.transform([cat])[0]: target_samples 
+                     for cat in valid_categories 
+                     if label_counter[cat] < target_samples}
+    
+    under_strategy = {le.transform([cat])[0]: target_samples 
+                      for cat in valid_categories 
+                      if label_counter[cat] > target_samples}
+    
+    # 只在需要时添加采样步骤
+    steps = []
+    if over_strategy:
+        over = SMOTE(sampling_strategy=over_strategy, k_neighbors=5)
+        steps.append(('over', over))
+    if under_strategy:
+        under = RandomUnderSampler(sampling_strategy=under_strategy)
+        steps.append(('under', under))
+    
+    if steps:
+        pipeline = Pipeline(steps)
+        try:
+            X_resampled, y_resampled = pipeline.fit_resample(X_reduced, all_labels_numeric)
+        except ValueError as e:
+            print(f"sampling error: {str(e)}", flush=True)
+            X_resampled, y_resampled = X_reduced, all_labels_numeric
+    else:
+        print("No resampling needed, using original data")
+        X_resampled, y_resampled = X_reduced, all_labels_numeric
     
     # 拆分回原始特征格式
-    flow_resampled = X_resampled[:, :TARGET_DIM]  # 流级特征
+    flevel_resampled = X_resampled[:, :TARGET_DIM]  # 流级特征
     plevel_resampled = X_resampled[:, TARGET_DIM:] # 包级特征
     
     # 转换回文本标签
     labels_resampled = le.inverse_transform(y_resampled)
     
     # 打乱顺序
-    shuffled_idx = np.random.permutation(len(flow_resampled))
-    flow_resampled = flow_resampled[shuffled_idx]
+    shuffled_idx = np.random.permutation(len(flevel_resampled))
+    flevel_resampled = flevel_resampled[shuffled_idx]
     plevel_resampled = plevel_resampled[shuffled_idx]
     labels_resampled = labels_resampled[shuffled_idx]
     
     # 写入CSV
-    with open(output_flow_csv, 'w', newline='') as f_flow, \
+    with open(output_flevel_csv, 'w', newline='') as f_fevel, \
          open(output_plevel_csv, 'w', newline='') as f_plevel:
         
-        flow_writer = csv.writer(f_flow)
+        flevel_writer = csv.writer(f_fevel)
         plevel_writer = csv.writer(f_plevel)
         
         # 写CSV头
-        flow_writer.writerow([f'feature_{i}' for i in range(TARGET_DIM)] + ['label'])
+        flevel_writer.writerow([f'feature_{i}' for i in range(TARGET_DIM)] + ['label'])
         plevel_writer.writerow([f'feature_{i}' for i in range(TARGET_DIM)] + ['label'])
         
         # 写入数据
-        for flow_feat, plevel_feat, label in zip(flow_resampled, plevel_resampled, labels_resampled):
-            flow_writer.writerow(list(flow_feat) + [label])
-            plevel_writer.writerow(list(plevel_feat) + [label])
+        for flevel_feat, plevel_feat, label in zip(flevel_resampled, plevel_resampled, labels_resampled):
+            # 对流级特征四舍五入到8位小数
+            rounded_flevel = [round(x, 8) for x in flevel_feat]
+            # 对包级特征四舍五入到8位小数
+            rounded_plevel = [round(x, 8) for x in plevel_feat]
+            
+            flevel_writer.writerow(list(rounded_flevel) + [label])
+            plevel_writer.writerow(list(rounded_plevel) + [label])
     
-    print(f"Flow features saved to {output_flow_csv}, shape: {flow_resampled.shape}")
-    print(f"Packet features saved to {output_plevel_csv}, shape: {plevel_resampled.shape}")
+    print(f"Flevel features saved to {output_flevel_csv}, shape: {flevel_resampled.shape}", flush=True)
+    print(f"Packet features saved to {output_plevel_csv}, shape: {plevel_resampled.shape}", flush=True)
     
-    """
     # 保存PCA模型供后续使用
-    import joblib
-    os.makedirs('DM-HNN/models', exist_ok=True)
-    joblib.dump(flow_scaler, 'DM-HNN/models/flow_scaler.pkl')
-    joblib.dump(flow_pca, 'DM-HNN/models/flow_pca.pkl')
-    joblib.dump(plevel_scaler, 'DM-HNN/models/plevel_scaler.pkl')
-    joblib.dump(plevel_pca, 'DM-HNN/models/plevel_pca.pkl')
-    print("PCA models saved to DM-HNN/models/")
-    """
+    os.makedirs('DM-HNN/PCAmodels', exist_ok=True)
+    joblib.dump(flevel_ipca, 'DM-HNN/PCAmodels/flevel_ipca.pkl')
+    joblib.dump(plevel_ipca, 'DM-HNN/PCAmodels/plevel_ipca.pkl')
+    print("Incremental PCA models saved to DM-HNN/PCAmodels/")
+    
+def process_batch(batch_flevel, batch_plevel, batch_labels,
+                 all_flevel_features, all_plevel_features, all_labels,
+                 flevel_ipca, plevel_ipca):
+    """处理一个批次的数据: 降维并存储结果"""
+    if not batch_flevel:
+        return
+    
+    # 转换为稀疏矩阵
+    flevel_sparse = vstack(batch_flevel)
+    plevel_sparse = vstack(batch_plevel)
+    
+    # 转换为稠密矩阵用于PCA
+    flevel_dense = flevel_sparse.toarray()
+    plevel_dense = plevel_sparse.toarray()
+    
+    # 增量PCA拟合和转换
+    if not hasattr(flevel_ipca, 'components_'):  # 第一次调用
+        flevel_reduced = flevel_ipca.fit_transform(flevel_dense)
+        plevel_reduced = plevel_ipca.fit_transform(plevel_dense)
+    else:
+        flevel_reduced = flevel_ipca.transform(flevel_dense)
+        plevel_reduced = plevel_ipca.transform(plevel_dense)
+    
+    # 收集结果（降维后的稠密矩阵）
+    all_flevel_features.append(flevel_reduced)
+    all_plevel_features.append(plevel_reduced)
+    all_labels.extend(batch_labels)
+    
+    print(f"Processed batch of {len(batch_labels)} flows", flush=True)
     
 if __name__ == '__main__':                 
     process_all_pcaps(
-        output_flow_csv='DM-HNN/origin_flevel_features.csv',
+        output_flevel_csv='DM-HNN/origin_flevel_features.csv',
         output_plevel_csv='DM-HNN/origin_plevel_features.csv'
     )

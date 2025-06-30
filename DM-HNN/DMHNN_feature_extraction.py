@@ -1,321 +1,285 @@
-import os
-import dpkt
-import socket
-from collections import defaultdict
-import csv
+import torch
+import torch.nn as nn
+import torch.optim as optim
 import numpy as np
-import math
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
-from imblearn.pipeline import Pipeline
-from imblearn.over_sampling import SMOTE
-from imblearn.under_sampling import RandomUnderSampler
-from collections import Counter
-from sklearn.preprocessing import LabelEncoder
+import pandas as pd
+from torch.utils.data import Dataset, DataLoader
+import time
 
-# 根据论文修改的参数
-MAX_PACKETS = 20       # 每个流取前20个包
-MAX_BYTES = 40         # 每个包取前40字节
-ONE_HOT_DIM = 256      # 字节值one-hot编码尺寸 (0-255)
-POS_ENCODING_DIM = 256  # 位置编码维度 (必须与ONE_HOT_DIM相同)
+# 根据论文参数配置
+FLOW_DIM = 128  # 流级特征维度 (来自预处理PCA)
+PKT_DIM = 128   # 包级特征维度 (来自预处理PCA)
+HIDDEN_DIM = 256  # 修改为256维
 categories = ["socialapp", "chat", "email", "file", "streaming", "VoIP"]
-TARGET_DIM = 128       # 目标降维维度
 
-# 预计算位置编码矩阵 (位置0-39, 维度256)
-def get_positional_encoding(max_len=MAX_BYTES, d_model=POS_ENCODING_DIM):
-    position_encoding = np.zeros((max_len, d_model))
-    for pos in range(max_len):
-        for i in range(0, d_model, 2):
-            div_term = 10000 ** (i / d_model)
-            position_encoding[pos, i] = math.sin(pos / div_term)
-            if i + 1 < d_model:
-                position_encoding[pos, i + 1] = math.cos(pos / div_term)
-    return position_encoding
+# 设备配置
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-# 全局位置编码矩阵
-POSITION_ENCODING_MATRIX = get_positional_encoding()
-
-def byte_to_onehot(byte_val):
-    """将字节值转换为one-hot编码 (256维)"""
-    onehot = np.zeros(ONE_HOT_DIM)
-    if 0 <= byte_val < ONE_HOT_DIM:
-        onehot[byte_val] = 1
-    return onehot
-
-def apply_positional_encoding(byte_features):
-    """
-    应用位置编码到包字节特征
-    """
-    encoded = []
-    for pos, byte_val in enumerate(byte_features):
-        # 字节值转换为one-hot编码 (256维)
-        byte_onehot = byte_to_onehot(byte_val)
+# 自定义数据集类
+class DualModeDataset(Dataset):
+    def __init__(self, flow_csv, plevel_csv):
+        # 读取流级特征CSV
+        flow_df = pd.read_csv(flow_csv)
+        self.flow_features = flow_df.iloc[:, :-1].values.astype(np.float32)
+        self.labels = flow_df.iloc[:, -1].values
         
-        # 获取位置编码 (256维)
-        pos_enc = POSITION_ENCODING_MATRIX[pos]
+        # 读取包级特征CSV
+        plevel_df = pd.read_csv(plevel_csv)
+        self.plevel_features = plevel_df.iloc[:, :-1].values.astype(np.float32)
         
-        # 将one-hot编码与位置编码相加 
-        combined = byte_onehot + pos_enc
-        encoded.append(combined)
-    
-    # 展平为1维数组 (40 * 256 = 10240维)
-    return np.array(encoded).flatten()
+        # 标签编码
+        self.label_map = {label: idx for idx, label in enumerate(np.unique(self.labels))}
+        self.encoded_labels = np.array([self.label_map[label] for label in self.labels])
+        
+        print(f"Loaded dataset with {len(self.flow_features)} samples", flush=True)
+        print(f"Flow features shape: {self.flow_features.shape}", flush=True)
+        print(f"Packet-level features shape: {self.plevel_features.shape}", flush=True)
+        print(f"Label distribution: {np.unique(self.labels, return_counts=True)}", flush=True)
+        
+        # 保存标签映射关系
+        self.reverse_label_map = {idx: label for label, idx in self.label_map.items()}
 
-def stream_packets(pcap, label):
-    """流式生成器: 累积整个pcap的流, 处理完毕后统一过滤并yield"""
-    flows = defaultdict(lambda: {'lengths': [], 'bytes': []})
-    
-    # 先完全解析整个pcap文件，累积所有流数据
-    for _, buff in pcap:
-        eth = dpkt.ethernet.Ethernet(buff)
-        if not isinstance(eth.data, dpkt.ip.IP):
-            continue
+    def __len__(self):
+        return len(self.flow_features)
+
+    def __getitem__(self, idx):
+        return {
+            'flow': self.flow_features[idx],
+            'plevel': self.plevel_features[idx],
+            'label': self.encoded_labels[idx]
+        }
+
+# 改进的GRU路径 (流级特征处理)
+class FlowGRUPath(nn.Module):
+    def __init__(self, input_dim, hidden_dim, num_layers=2):
+        super(FlowGRUPath, self).__init__()
+        # 添加线性层将输入维度转换为hidden_dim
+        self.input_fc = nn.Linear(input_dim, hidden_dim)
+        self.gru = nn.GRU(hidden_dim, hidden_dim, num_layers, batch_first=True)
         
-        ip = eth.data
-        trans_proto = ip.data
-        if not isinstance(trans_proto, (dpkt.tcp.TCP, dpkt.udp.UDP)):
-            continue
-        
-        # 构造五元组键（包含label）
-        flow_key = (
-            'TCP' if isinstance(trans_proto, dpkt.tcp.TCP) else 'UDP',
-            socket.inet_ntoa(ip.src),
-            socket.inet_ntoa(ip.dst),
-            trans_proto.sport,
-            trans_proto.dport,
-            label
+        # 开关机制 (论文中的改进)
+        self.switch_gate = nn.Sequential(
+            nn.Linear(hidden_dim * 2, hidden_dim),  # 输入是[原始输入, gru输出]
+            nn.Sigmoid()
         )
         
-        # 提取应用层数据长度（流级特征）
-        if isinstance(trans_proto, dpkt.tcp.TCP):
-            tcp_header_len = trans_proto.off * 4
-            app_data_len = ip.len - (ip.hl * 4) - tcp_header_len
-        else:
-            udp_header_len = 8
-            app_data_len = ip.len - (ip.hl * 4) - udp_header_len
+        self.fc = nn.Linear(hidden_dim, 512)
+        self.hidden_dim = hidden_dim
+        self.num_layers = num_layers
+
+    def forward(self, x):
+        # 先将输入转换为hidden_dim维度
+        x_transformed = self.input_fc(x)
         
-        # 确保长度至少为1（避免负值）
-        pkt_len = max(app_data_len, 1)
+        # 添加时间步维度 (batch_size, seq_len=1, hidden_dim)
+        x_transformed = x_transformed.unsqueeze(1)
         
-        # 提取包级特征（前40字节）
-        ip_packet = ip.pack()
-        ip_header_length = ip.hl * 4
+        # 初始化隐藏状态
+        h0 = torch.zeros(self.num_layers, x_transformed.size(0), self.hidden_dim).to(device)
         
-        # 取前40字节，不足则填充0
-        raw_bytes = ip_packet[:MAX_BYTES]
-        byte_features = list(raw_bytes) + [0] * (MAX_BYTES - len(raw_bytes))
+        # GRU处理
+        out, hn = self.gru(x_transformed, h0)
+        gru_output = out[:, -1, :]
         
-        # 隐私保护：将IP地址和端口号置零
-        # 1. 置零IP地址（源IP:12-15字节, 目的IP:16-19字节）
-        if ip_header_length >= 20 and len(byte_features) >= 20:
-            for i in range(12, 16):  # 源IP
-                byte_features[i] = 0
-            for i in range(16, 20):  # 目的IP
-                byte_features[i] = 0
+        # 应用开关机制 (论文公式5-6)
+        # 使用转换后的输入而不是原始输入
+        combined = torch.cat([x_transformed.squeeze(1), gru_output], dim=1)
+        switch_param = self.switch_gate(combined)
         
-        # 2. 置零端口号（传输层头的前4字节）
-        trans_start = ip_header_length
-        if trans_start + 4 <= len(byte_features):
-            for i in range(trans_start, trans_start + 4):
-                byte_features[i] = 0
+        # 最终输出 (论文公式6)
+        output = (1 - switch_param) * x_transformed.squeeze(1) + switch_param * gru_output
         
-        # 累积到流字典
-        flows[flow_key]['lengths'].append(pkt_len)
-        flows[flow_key]['bytes'].append(byte_features)
+        # 全连接层进一步处理
+        return self.fc(output)
+
+# SAE路径 (包级特征处理)
+class PacketSAEPath(nn.Module):
+    def __init__(self, input_dim, hidden_dims=[256, 512]):
+        super(PacketSAEPath, self).__init__()
+        # 构建编码器
+        encoder_layers = []
+        prev_dim = input_dim
+        for dim in hidden_dims:
+            encoder_layers.append(nn.Linear(prev_dim, dim))
+            encoder_layers.append(nn.ReLU(True))
+            prev_dim = dim
+        self.encoder = nn.Sequential(*encoder_layers)
+        
+        # 构建解码器 (用于无监督预训练)
+        decoder_layers = []
+        hidden_dims.reverse()
+        for i in range(len(hidden_dims) - 1):
+            decoder_layers.append(nn.Linear(hidden_dims[i], hidden_dims[i+1]))
+            decoder_layers.append(nn.ReLU(True))
+        decoder_layers.append(nn.Linear(hidden_dims[-1], input_dim))
+        self.decoder = nn.Sequential(*decoder_layers)
+        
+        # 最终特征提取层 - 512
+        self.fc = nn.Linear(hidden_dims[0], 512)  # 确保输出512维
+
+    def forward(self, x):
+        # 编码
+        encoded = self.encoder(x)
+        
+        # 解码 (仅用于预训练阶段)
+        decoded = self.decoder(encoded)
+        
+        # 最终特征提取 - 输出512维
+        return self.fc(encoded), decoded
+
+# 双模式特征提取模型
+class DualFeatureExtractor(nn.Module):
+    def __init__(self, flow_dim, pkt_dim, hidden_dim):
+        super(DualFeatureExtractor, self).__init__()
+        self.flow_path = FlowGRUPath(flow_dim, hidden_dim)
+        self.pkt_path = PacketSAEPath(pkt_dim, [256, 512])  # 确保输出512维
+        
+    def forward(self, flow_input, pkt_input):
+        flow_feature = self.flow_path(flow_input)
+        pkt_feature, decoded = self.pkt_path(pkt_input)
+        return flow_feature, pkt_feature, decoded
+
+# 训练函数
+def train_model(model, dataloader, criterion, optimizer, epochs):
+    model.train()
+    start_time = time.time()
     
-    # 处理完整个pcap后，筛选并yield长度≥5的流
-    for flow_key in list(flows.keys()):
-        if len(flows[flow_key]['lengths']) >= 5:
-            yield flow_key, flows[flow_key]
-            del flows[flow_key]  # 释放内存
+    # 早停参数
+    best_total_loss = 1000
+    patience = 10
+    no_improve_epochs = 0
+    stop_training = False
+    
+    for epoch in range(epochs):
+        # 检查早停条件
+        if stop_training:
+            print(f"Early stopping at epoch {epoch}", flush=True)
+            print(f"get model at epoch {epoch-patience}", flush=True)
+            break    
+        
+        total_loss = 0.0
+        
+        for batch in dataloader:
+            flow_input = batch['flow'].to(device)
+            pkt_input = batch['plevel'].to(device)
+            
+            # 前向传播
+            flow_feature, pkt_feature, decoded = model(flow_input, pkt_input)
+            
+            # 计算重建损失 (仅对包级路径)
+            loss = criterion(decoded, pkt_input)
+            
+            # 反向传播和优化
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            
+            total_loss += loss.item()
+        
+        avg_loss = total_loss / len(dataloader)
+        print(f'Epoch [{epoch+1}/{epochs}], Loss: {avg_loss:.4f}, Time: {time.time()-start_time:.2f}s', flush=True)
+        
+        # 早停判断
+        if total_loss < best_total_loss:
+            best_total_loss = total_loss
+            no_improve_epochs = 0
+            torch.save(model.state_dict(), 'model/best_model.pth')
+        else:
+            no_improve_epochs += 1
+            if no_improve_epochs >= patience:
+                stop_training = True
+    
+    print(f'Training completed in {time.time()-start_time:.2f} seconds', flush=True)
+    return model
 
-def length_to_onehot(length):
-    """将包长转换为one-hot编码 (1501维)"""
-    # 限制长度在0-1500范围内
-    idx = min(max(int(length), 0), 1500)
-    onehot = np.zeros(1501)
-    onehot[idx] = 1
-    return onehot
+# 保存特征为CSV文件
+def save_features_to_csv(features, labels, reverse_label_map, filename):
+    # 转换标签索引为原始标签
+    str_labels = [reverse_label_map[label] for label in labels]
+    
+    # 创建DataFrame
+    feature_columns = [f'feature_{i}' for i in range(features.shape[1])]
+    df = pd.DataFrame(features, columns=feature_columns)
+    df['label'] = str_labels
+    
+    # 保存为CSV
+    df.to_csv(filename, index=False)
+    print(f"Features saved to {filename} with shape {features.shape}", flush=True)
 
-def process_all_pcaps(output_flow_csv, output_plevel_csv):
-    """主处理函数: 收集数据后输出到CSV文件"""
-    # 收集原始数据
-    all_flevel_features = []  # 流级特征 (每个样本展平为30020维)
-    all_plevel_features = []  # 包级特征 (每个样本展平为204800维)
+# 主函数
+def main():
+    # 创建数据集
+    dataset = DualModeDataset(
+        flow_csv='DM-HNN/origin_flevel_features.csv',
+        plevel_csv='DM-HNN/origin_plevel_features.csv'
+    )
+    
+    # 创建数据加载器
+    batch_size = 512
+    dataset_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    
+    # 初始化模型
+    model = DualFeatureExtractor(
+        flow_dim=FLOW_DIM,
+        pkt_dim=PKT_DIM,
+        hidden_dim=HIDDEN_DIM
+    ).to(device)
+    
+    # 损失函数和优化器
+    criterion = nn.MSELoss()  # 用于SAE重建损失
+    optimizer = optim.Adam(model.parameters(), lr=0.005)
+    
+    # 训练模型
+    print("Starting training...", flush=True)
+    model = train_model(model, dataset_loader, criterion, optimizer, epochs=200)
+    
+    # 保存模型
+    torch.save(model.state_dict(), 'DM-HNN/dual_feature_extractor.pth')
+    print("Model saved to DM-HNN/dual_feature_extractor.pth", flush=True)
+    
+    # 提取整个数据集的特征
+    model.eval()
+    all_flow_features = []
+    all_pkt_features = []
     all_labels = []
     
-    category_dirs = {
-        'socialapp': 'dataset_pcap/socialapp',
-        'chat': 'dataset_pcap/chat',
-        'email': 'dataset_pcap/email',
-        'file': 'dataset_pcap/file',
-        'streaming': 'dataset_pcap/streaming',
-        'VoIP': 'dataset_pcap/VoIP'
-    }
-
-    pcap_files = []
-    for label, dir_path in category_dirs.items():
-        if not os.path.exists(dir_path):
-            print(f"warning: {dir_path} directory does not exist, skip", flush=True)
-            continue
-        
-        for filename in os.listdir(dir_path):
-            if filename.endswith('.pcap'):
-                file_path = os.path.join(dir_path, filename)
-                pcap_files.append((file_path, label))
-
-    # 处理每个pcap文件
-    for file_path, label in pcap_files:
-        try:
-            with open(file_path, 'rb') as f:
-                pcap = dpkt.pcap.Reader(f)
-                # 处理当前pcap的所有流
-                for flow_key, flow_data in stream_packets(pcap, label):
-                    # 流级特征处理 (包长序列)
-                    lengths = flow_data['lengths'][:MAX_PACKETS]  # 取前20个包
-                    # 不足20个包则填充0长度
-                    if len(lengths) < MAX_PACKETS:
-                        lengths += [0] * (MAX_PACKETS - len(lengths))
-                    
-                    # 将包长转换为one-hot编码并展平 (20*1501=30020维)
-                    flevel_features = []
-                    for length in lengths:
-                        flevel_features.extend(length_to_onehot(length))
-                    
-                    # 包级特征处理 (前40字节 + one-hot + 位置编码)
-                    byte_features = flow_data['bytes'][:MAX_PACKETS]  # 取前20个包
-                    # 不足20个包则填充0字节
-                    if len(byte_features) < MAX_PACKETS:
-                        byte_features += [[0] * MAX_BYTES] * (MAX_PACKETS - len(byte_features))
-                    
-                    # 应用位置编码并展平 (20*40*256=204800维)
-                    plevel_flat = []
-                    for pkt_bytes in byte_features:
-                        # 每个包: 40字节 → 10240维 (40*256)
-                        encoded = apply_positional_encoding(pkt_bytes)
-                        plevel_flat.extend(encoded)
-                    
-                    all_flevel_features.append(flevel_features)
-                    all_plevel_features.append(plevel_flat)
-                    all_labels.append(label)
-        except Exception as e:
-            print(f"Error processing {file_path}: {str(e)}", flush=True)
-            continue
-        
-        print(f"{file_path} finish", flush=True)
+    # 创建整个数据集的数据加载器
+    full_loader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
     
-    # 转换为NumPy数组
-    all_flevel_features = np.array(all_flevel_features)
-    all_plevel_features = np.array(all_plevel_features)
-    all_labels = np.array(all_labels)
+    with torch.no_grad():
+        for batch in full_loader:
+            flow_input = batch['flow'].to(device)
+            pkt_input = batch['plevel'].to(device)
+            labels = batch['label'].numpy()
+            
+            flow_feature, pkt_feature, _ = model(flow_input, pkt_input)
+            
+            all_flow_features.append(flow_feature.cpu().numpy())
+            all_pkt_features.append(pkt_feature.cpu().numpy())
+            all_labels.append(labels)
     
-    print(f"Original flow features shape: {all_flevel_features.shape}", flush=True)
-    print(f"Original packet features shape: {all_plevel_features.shape}", flush=True)
+    # 合并特征和标签
+    flow_features = np.vstack(all_flow_features)
+    pkt_features = np.vstack(all_pkt_features)
+    all_labels = np.concatenate(all_labels)
     
-    # ===== 先进行特征降维 =====
-    print("Applying dimensionality reduction...", flush=True)
+    print(f"Extracted flow features shape: {flow_features.shape}", flush=True)
+    print(f"Extracted packet features shape: {pkt_features.shape}", flush=True)
     
-    # 对流级特征降维
-    flow_scaler = StandardScaler()
-    flow_features_scaled = flow_scaler.fit_transform(all_flevel_features)
-    flow_pca = PCA(n_components=TARGET_DIM)
-    flow_reduced = flow_pca.fit_transform(flow_features_scaled)
-    print(f"Flow features reduced to {flow_reduced.shape[1]} dimensions", flush=True)
+    # 保存为CSV文件
+    save_features_to_csv(
+        flow_features, 
+        all_labels, 
+        dataset.reverse_label_map, 
+        'DM-HNN/final_flevel_features.csv'
+    )
     
-    # 对包级特征降维
-    plevel_scaler = StandardScaler()
-    plevel_features_scaled = plevel_scaler.fit_transform(all_plevel_features)
-    plevel_pca = PCA(n_components=TARGET_DIM)
-    plevel_reduced = plevel_pca.fit_transform(plevel_features_scaled)
-    print(f"Packet features reduced to {plevel_reduced.shape[1]} dimensions", flush=True)
-    
-    # 拼接降维后的特征
-    X_reduced = np.hstack([flow_reduced, plevel_reduced])
-    
-    # ===== 再进行重采样 =====
-    label_counter = Counter(all_labels)
-    print("Original sample distribution:", label_counter, flush=True)
-    
-    le = LabelEncoder()
-    all_labels_numeric = le.fit_transform(all_labels)
-    
-    # 设置目标样本数
-    target_samples = 1000
-    valid_categories = []
-
-    # 筛选有效类别（至少2个样本）
-    for cat in categories:
-        if label_counter.get(cat, 0) >= 2:
-            valid_categories.append(cat)
-    
-    # 配置组合采样器
-    over = SMOTE(
-        sampling_strategy={le.transform([cat])[0]: target_samples 
-        for cat in valid_categories 
-        if label_counter[cat] < target_samples
-    },
-    k_neighbors=5
+    save_features_to_csv(
+        pkt_features, 
+        all_labels, 
+        dataset.reverse_label_map, 
+        'DM-HNN/final_plevel_features.csv'
     )
 
-    under = RandomUnderSampler(
-        sampling_strategy={le.transform([cat])[0]: target_samples 
-        for cat in valid_categories 
-        if label_counter[cat] > target_samples
-    })
-
-    pipeline = Pipeline([('over', over), ('under', under)])
-
-    try:
-        X_resampled, y_resampled = pipeline.fit_resample(X_reduced, all_labels_numeric)
-    except ValueError as e:
-        print(f"sampling error: {str(e)}", flush=True)
-        return
-    
-    # 拆分回原始特征格式
-    flow_resampled = X_resampled[:, :TARGET_DIM]  # 流级特征
-    plevel_resampled = X_resampled[:, TARGET_DIM:] # 包级特征
-    
-    # 转换回文本标签
-    labels_resampled = le.inverse_transform(y_resampled)
-    
-    # 打乱顺序
-    shuffled_idx = np.random.permutation(len(flow_resampled))
-    flow_resampled = flow_resampled[shuffled_idx]
-    plevel_resampled = plevel_resampled[shuffled_idx]
-    labels_resampled = labels_resampled[shuffled_idx]
-    
-    # 写入CSV
-    with open(output_flow_csv, 'w', newline='') as f_flow, \
-         open(output_plevel_csv, 'w', newline='') as f_plevel:
-        
-        flow_writer = csv.writer(f_flow)
-        plevel_writer = csv.writer(f_plevel)
-        
-        # 写CSV头
-        flow_writer.writerow([f'feature_{i}' for i in range(TARGET_DIM)] + ['label'])
-        plevel_writer.writerow([f'feature_{i}' for i in range(TARGET_DIM)] + ['label'])
-        
-        # 写入数据
-        for flow_feat, plevel_feat, label in zip(flow_resampled, plevel_resampled, labels_resampled):
-            flow_writer.writerow(list(flow_feat) + [label])
-            plevel_writer.writerow(list(plevel_feat) + [label])
-    
-    print(f"Flow features saved to {output_flow_csv}, shape: {flow_resampled.shape}", flush=True)
-    print(f"Packet features saved to {output_plevel_csv}, shape: {plevel_resampled.shape}", flush=True)
-    
-    """
-    # 保存PCA模型供后续使用
-    import joblib
-    os.makedirs('DM-HNN/models', exist_ok=True)
-    joblib.dump(flow_scaler, 'DM-HNN/models/flow_scaler.pkl')
-    joblib.dump(flow_pca, 'DM-HNN/models/flow_pca.pkl')
-    joblib.dump(plevel_scaler, 'DM-HNN/models/plevel_scaler.pkl')
-    joblib.dump(plevel_pca, 'DM-HNN/models/plevel_pca.pkl')
-    print("PCA models saved to DM-HNN/models/")
-    """
-    
-if __name__ == '__main__':                 
-    process_all_pcaps(
-        output_flow_csv='DM-HNN/origin_flevel_features.csv',
-        output_plevel_csv='DM-HNN/origin_plevel_features.csv'
-    )
+if __name__ == '__main__':
+    main()

@@ -5,7 +5,6 @@ import pandas as pd
 import numpy as np
 from sklearn.metrics import classification_report
 import multiprocessing
-from torch.optim.lr_scheduler import OneCycleLR
 import os
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -168,7 +167,7 @@ class DMHNNClassifier(nn.Module):
             nn.Linear(hidden_dim, hidden_dim),
             nn.BatchNorm1d(hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.5),
+            nn.Dropout(0.7),
             nn.Linear(hidden_dim, num_classes)
         )
         
@@ -187,13 +186,13 @@ if __name__ == '__main__':
     os.makedirs('model', exist_ok=True)
     
     # 超参数
-    flow_dim = 128  # 流级特征维度
-    pkt_dim = 128   # 包级特征维度
-    hidden_dim = 500  # 与原始代码中的hidden_size保持一致
+    flow_dim = 512  # 流级特征维度
+    pkt_dim = 512   # 包级特征维度
+    hidden_dim = 500  
     num_classes = len(categories)
-    num_epochs = 500
+    num_epochs = 200
     batch_size = 512
-    lr = 1e-4
+    lr = 0.01
 
     # 加载原始数据
     full_raw = DualFeatureDataset(
@@ -235,26 +234,14 @@ if __name__ == '__main__':
     criterion = nn.CrossEntropyLoss()
     
     # 优化器为AdamW
-    optimizer = torch.optim.AdamW(
+    optimizer = torch.optim.Adam(
         model.parameters(),
         lr=lr,                  # 设置基础学习率
-        weight_decay=1e-4,
-        betas=(0.9, 0.98)
-    )
-
-    scheduler = OneCycleLR(
-        optimizer,
-        max_lr=lr*15,      # 峰值学习率
-        total_steps=num_epochs,
-        pct_start=0.25,     # warmup阶段
-        anneal_strategy='cos',
-        div_factor=25,     # 初始学习率与峰值比率
-        final_div_factor=1e4
     )
 
     # 早停参数
     best_avg_val_loss = 100
-    patience = 15
+    patience = 10
     no_improve_epochs = 0
     stop_training = False
     
@@ -303,8 +290,6 @@ if __name__ == '__main__':
             no_improve_epochs += 1
             if no_improve_epochs >= patience:
                 stop_training = True
-        
-        scheduler.step()  # 执行主调度
         
         # 打印信息
         print(f"Epoch {epoch+1}: "
