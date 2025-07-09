@@ -63,7 +63,7 @@ class FlowGRUPath(nn.Module):
             nn.Sigmoid()
         )
         
-        self.fc = nn.Linear(hidden_dim, 512)
+        self.fc = nn.Linear(hidden_dim, 256)
         self.hidden_dim = hidden_dim
         self.num_layers = num_layers
 
@@ -94,7 +94,7 @@ class FlowGRUPath(nn.Module):
 
 # SAE路径 (包级特征处理)
 class PacketSAEPath(nn.Module):
-    def __init__(self, input_dim, hidden_dims=[256, 512]):
+    def __init__(self, input_dim, hidden_dims=[256, 256]):
         super(PacketSAEPath, self).__init__()
         # 构建编码器
         encoder_layers = []
@@ -114,8 +114,8 @@ class PacketSAEPath(nn.Module):
         decoder_layers.append(nn.Linear(hidden_dims[-1], input_dim))
         self.decoder = nn.Sequential(*decoder_layers)
         
-        # 最终特征提取层 - 512
-        self.fc = nn.Linear(hidden_dims[0], 512)  # 确保输出512维
+        # 最终特征提取层 - 256
+        self.fc = nn.Linear(hidden_dims[0], 256)  # 确保输 256维
 
     def forward(self, x):
         # 编码
@@ -124,7 +124,7 @@ class PacketSAEPath(nn.Module):
         # 解码 (仅用于预训练阶段)
         decoded = self.decoder(encoded)
         
-        # 最终特征提取 - 输出512维
+        # 最终特征提取 - 输 256维
         return self.fc(encoded), decoded
 
 # 双模式特征提取模型
@@ -132,7 +132,7 @@ class DualFeatureExtractor(nn.Module):
     def __init__(self, flow_dim, pkt_dim, hidden_dim):
         super(DualFeatureExtractor, self).__init__()
         self.flow_path = FlowGRUPath(flow_dim, hidden_dim)
-        self.pkt_path = PacketSAEPath(pkt_dim, [256, 512])  # 确保输出512维
+        self.pkt_path = PacketSAEPath(pkt_dim, [256, 256])  # 确保输 256维
         
     def forward(self, flow_input, pkt_input):
         flow_feature = self.flow_path(flow_input)

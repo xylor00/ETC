@@ -186,8 +186,8 @@ if __name__ == '__main__':
     os.makedirs('model', exist_ok=True)
     
     # 超参数
-    flow_dim = 512  # 流级特征维度
-    pkt_dim = 512   # 包级特征维度
+    flow_dim = 256  # 流级特征维度
+    pkt_dim = 256   # 包级特征维度
     hidden_dim = 500  
     num_classes = len(categories)
     num_epochs = 200
