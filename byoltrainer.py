@@ -13,6 +13,8 @@ from torch.optim.lr_scheduler import OneCycleLR
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 categories = ["socialapp", "chat", "email", "file", "streaming", "VoIP"]
+#categories = ["socialapp", "chat", "email", "file", "streaming", "web"]
+#categories = ["Benign", "Malware"]
 
 # 数据集类（不含标准化）    
 class RawDataset(Dataset):

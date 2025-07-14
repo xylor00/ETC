@@ -9,7 +9,9 @@ import multiprocessing
 import os # 导入 os 模块用于路径操作
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-categories = ["socialapp", "chat", "email", "file", "streaming", "VoIP"]
+#categories = ["socialapp", "chat", "email", "file", "streaming", "VoIP"]
+#categories = ["socialapp", "chat", "email", "file", "streaming", "web"]
+categories = ["Benign", "Malware"]
 
 def compute_confusion_matrix(true_labels, pred_labels, num_classes):
     """
@@ -33,7 +35,7 @@ def compute_confusion_matrix(true_labels, pred_labels, num_classes):
         minlength=num_classes**2
     ).reshape(num_classes, num_classes)
     
-    return matrix.numpy()  # 转换为numpy数组方便后续处理
+    return matrix.numpy()
     
 # 数据集类（不含标准化）    
 class RawDataset(Dataset):
@@ -57,66 +59,50 @@ class StandardizedDataset(Dataset):
         return len(self.labels)
 
     def __getitem__(self, idx):
-        # 获取当前特征，它是一个长度为 784 的一维向量
+        # 获取当前特征，一个长度为 784 的一维向量
         feature_vector = self.features[idx]
         
         # 将 784 字节的向量重塑为 28x28 的灰度图像
-        # 图像的形状通常是 [C, H, W]，对于灰度图，C=1
-        # 所以我们需要将其重塑为 [1, 28, 28]
-        image_feature = feature_vector.reshape(1, 28, 28) # 将 784 重塑为 1x28x28
+        image_feature = feature_vector.reshape(1, 28, 28)
 
         return (
-            torch.tensor(image_feature, dtype=torch.float32), # 确保是 float32
-            torch.tensor(self.labels[idx]).long() # 确保标签是 long 类型
+            torch.tensor(image_feature, dtype=torch.float32),
+            torch.tensor(self.labels[idx]).long()
         )
 
 class SimpleCNN(nn.Module):
     def __init__(self, num_classes):
         super(SimpleCNN, self).__init__()
 
-        # Conv2d 的 kernel_size 应为 (height, width)
+
         # 输入通道为 1 (灰度图)，输出 32 通道
-        self.conv1 = nn.Conv2d(in_channels=1, out_channels=32, kernel_size=3, stride=1, padding=1) # 3x3 卷积核，保持图像尺寸不变
+        self.conv1 = nn.Conv2d(in_channels=1, out_channels=32, kernel_size=3, stride=1, padding=1)
         # 池化层
-        self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2) # 2x2 最大池化，尺寸减半 (28->14)
+        self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)
 
         # 第二个卷积层
         # 输入通道为 32，输出 64 通道
-        self.conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1) # 3x3 卷积核，保持图像尺寸不变
+        self.conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1)
         # 第二个池化层
-        self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2) # 2x2 最大池化，尺寸减半 (14->7)
+        self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2)
 
-        # 计算全连接层输入特征数量
-        # 假设输入是 (1, 28, 28)
-        # Conv1: (1, 28, 28) -> (32, 28, 28) (padding=1, kernel_size=3)
-        # Pool1: (32, 28, 28) -> (32, 14, 14) (kernel_size=2, stride=2)
-        # Conv2: (32, 14, 14) -> (64, 14, 14) (padding=1, kernel_size=3)
-        # Pool2: (64, 14, 14) -> (64, 7, 7) (kernel_size=2, stride=2)
-        # 展平后：64 * 7 * 7 = 3136
-        self.fc1_input_features = 64 * 7 * 7 # 或者通过 dummy_input 动态计算
+        self.fc1_input_features = 64 * 7 * 7 
 
-        self.fc1 = nn.Linear(self.fc1_input_features, 1024)
-        self.dropout = nn.Dropout(p=0.2)
-        self.fc2 = nn.Linear(1024, num_classes)
+        self.fc1 = nn.Linear(self.fc1_input_features, 256)
+        self.dropout = nn.Dropout(p=0.5)
+        self.fc2 = nn.Linear(256, num_classes)
 
     def forward(self, x):
-        # 输入 x 的形状现在应该是 [N, 1, 28, 28]
-        # print(f"Input shape: {x.shape}") # 可用于调试
 
         # 第一个卷积层和池化层
         x = F.relu(self.conv1(x))
         x = self.pool1(x)
-        # print(f"After conv1 and pool1 shape: {x.shape}") # 可用于调试
 
         # 第二个卷积层和池化层
         x = F.relu(self.conv2(x))
         x = self.pool2(x)
-        # print(f"After conv2 and pool2 shape: {x.shape}") # 可用于调试
 
-        # 展平以便输入全连接层
-        # x.view(-1, ...) 会自动推断第一个维度 (batch_size)
         x = x.view(-1, self.fc1_input_features)
-        # print(f"After flatten shape: {x.shape}") # 可用于调试
 
         # 全连接层
         x = F.relu(self.fc1(x))
@@ -135,8 +121,8 @@ if __name__ == '__main__':
     input_size = 784  # 对应CSV中的原始流字节数量
     num_classes = len(categories)
     num_epochs = 100
-    batch_size = 256
-    lr = 0.005
+    batch_size = 512
+    lr = 0.02
 
     # 定义模型保存目录
     model_dir = '1dcnn'
@@ -185,7 +171,7 @@ if __name__ == '__main__':
 
     # 早停参数
     best_avg_val_loss = 100
-    patience = 10
+    patience = 3
     no_improve_epochs = 0
     stop_training = False
     

@@ -6,11 +6,12 @@ import pandas as pd
 from torch.utils.data import Dataset, DataLoader
 import time
 
-# 根据论文参数配置
 FLOW_DIM = 128  # 流级特征维度 (来自预处理PCA)
 PKT_DIM = 128   # 包级特征维度 (来自预处理PCA)
 HIDDEN_DIM = 256  # 修改为256维
 categories = ["socialapp", "chat", "email", "file", "streaming", "VoIP"]
+#categories = ["socialapp", "chat", "email", "file", "streaming", "web"]
+#categories = ["Benign", "Malware"]
 
 # 设备配置
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -57,9 +58,9 @@ class FlowGRUPath(nn.Module):
         self.input_fc = nn.Linear(input_dim, hidden_dim)
         self.gru = nn.GRU(hidden_dim, hidden_dim, num_layers, batch_first=True)
         
-        # 开关机制 (论文中的改进)
+        # 开关机制
         self.switch_gate = nn.Sequential(
-            nn.Linear(hidden_dim * 2, hidden_dim),  # 输入是[原始输入, gru输出]
+            nn.Linear(hidden_dim * 2, hidden_dim),
             nn.Sigmoid()
         )
         
@@ -68,10 +69,10 @@ class FlowGRUPath(nn.Module):
         self.num_layers = num_layers
 
     def forward(self, x):
-        # 先将输入转换为hidden_dim维度
+        # 将输入转换为hidden_dim维度
         x_transformed = self.input_fc(x)
         
-        # 添加时间步维度 (batch_size, seq_len=1, hidden_dim)
+        # 添加时间步维度
         x_transformed = x_transformed.unsqueeze(1)
         
         # 初始化隐藏状态
@@ -81,12 +82,11 @@ class FlowGRUPath(nn.Module):
         out, hn = self.gru(x_transformed, h0)
         gru_output = out[:, -1, :]
         
-        # 应用开关机制 (论文公式5-6)
-        # 使用转换后的输入而不是原始输入
+        # 应用开关机制 
         combined = torch.cat([x_transformed.squeeze(1), gru_output], dim=1)
         switch_param = self.switch_gate(combined)
         
-        # 最终输出 (论文公式6)
+        # 最终输出
         output = (1 - switch_param) * x_transformed.squeeze(1) + switch_param * gru_output
         
         # 全连接层进一步处理
@@ -115,7 +115,7 @@ class PacketSAEPath(nn.Module):
         self.decoder = nn.Sequential(*decoder_layers)
         
         # 最终特征提取层 - 256
-        self.fc = nn.Linear(hidden_dims[0], 256)  # 确保输 256维
+        self.fc = nn.Linear(hidden_dims[0], 256)
 
     def forward(self, x):
         # 编码
@@ -124,7 +124,7 @@ class PacketSAEPath(nn.Module):
         # 解码 (仅用于预训练阶段)
         decoded = self.decoder(encoded)
         
-        # 最终特征提取 - 输 256维
+        # 最终特征提取
         return self.fc(encoded), decoded
 
 # 双模式特征提取模型
@@ -132,7 +132,7 @@ class DualFeatureExtractor(nn.Module):
     def __init__(self, flow_dim, pkt_dim, hidden_dim):
         super(DualFeatureExtractor, self).__init__()
         self.flow_path = FlowGRUPath(flow_dim, hidden_dim)
-        self.pkt_path = PacketSAEPath(pkt_dim, [256, 256])  # 确保输 256维
+        self.pkt_path = PacketSAEPath(pkt_dim, [256, 256])
         
     def forward(self, flow_input, pkt_input):
         flow_feature = self.flow_path(flow_input)

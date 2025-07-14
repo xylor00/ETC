@@ -9,6 +9,8 @@ from torch.optim.lr_scheduler import OneCycleLR
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 categories = ["socialapp", "chat", "email", "file", "streaming", "VoIP"]
+#categories = ["socialapp", "chat", "email", "file", "streaming", "web"]
+#categories = ["Benign", "Malware"]
 
 def compute_confusion_matrix(true_labels, pred_labels, num_classes):
         """
@@ -67,7 +69,7 @@ class MLP(nn.Module):
         super().__init__()
         self.fc1 = nn.Linear(input_size, hidden_size)
         self.bn = nn.BatchNorm1d(hidden_size)
-        self.dropout = nn.Dropout(0.5)
+        self.dropout = nn.Dropout(0.3)
         self.fc2 = nn.Linear(hidden_size, num_classes)
         self.relu = nn.ReLU()
 
@@ -132,7 +134,7 @@ if __name__ == '__main__':
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=lr,                  # 设置基础学习率
-        weight_decay=1e-4,
+        weight_decay=1e-3,
         betas=(0.9, 0.98)
     )
 

@@ -9,6 +9,8 @@ import os
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 categories = ["socialapp", "chat", "email", "file", "streaming", "VoIP"]
+#categories = ["socialapp", "chat", "email", "file", "streaming", "web"]
+#categories = ["Benign", "Malware"]
 
 def compute_confusion_matrix(true_labels, pred_labels, num_classes):
     """
@@ -126,10 +128,10 @@ class GatedActivationFusion(nn.Module):
         # 拼接两个特征
         combined = torch.cat([flow_feature, pkt_feature], dim=1)
         
-        # 预融合层 (论文中的F)
+        # 预融合层
         F = self.prefusion_activation(self.prefusion_fc(combined))
         
-        # 计算每个特征对决策特征F的影响力因子 (论文公式15)
+        # 计算每个特征对决策特征F的影响力因子
         # 计算流级特征的影响力
         similarity_flow = self.similarity_fc_flow(flow_feature)
         
@@ -141,8 +143,7 @@ class GatedActivationFusion(nn.Module):
         I_flow = torch.exp(similarity_flow) / (exp_sum + 1e-10)
         I_pkt = torch.exp(similarity_pkt) / (exp_sum + 1e-10)
         
-        # 调整特征权重 (论文公式16)
-        # 添加epsilon避免log(0)
+        # 调整特征权重
         epsilon = 1e-10
         flow_adjusted = flow_feature * (1 + self.alpha_flow * torch.log(I_flow + epsilon))
         pkt_adjusted = pkt_feature * (1 + self.alpha_pkt * torch.log(I_pkt + epsilon))
@@ -154,7 +155,6 @@ class GatedActivationFusion(nn.Module):
         fused = self.fusion_fc(adjusted_combined)
         return fused
 
-# 完整分类模型
 class DMHNNClassifier(nn.Module):
     def __init__(self, flow_dim, pkt_dim, hidden_dim, num_classes):
         super(DMHNNClassifier, self).__init__()
@@ -167,7 +167,7 @@ class DMHNNClassifier(nn.Module):
             nn.Linear(hidden_dim, hidden_dim),
             nn.BatchNorm1d(hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.7),
+            nn.Dropout(0.1),
             nn.Linear(hidden_dim, num_classes)
         )
         
@@ -236,12 +236,12 @@ if __name__ == '__main__':
     # 优化器为AdamW
     optimizer = torch.optim.Adam(
         model.parameters(),
-        lr=lr,                  # 设置基础学习率
+        lr=lr,
     )
 
     # 早停参数
     best_avg_val_loss = 100
-    patience = 10
+    patience = 3
     no_improve_epochs = 0
     stop_training = False
     

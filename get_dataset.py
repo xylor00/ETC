@@ -14,6 +14,8 @@ from imblearn.under_sampling import RandomUnderSampler
 
 max_byte_len = 12
 categories = ["socialapp", "chat", "email", "file", "streaming", "VoIP"]
+#categories = ["socialapp", "chat", "email", "file", "streaming", "web"]
+#categories = ["Benign", "Malware"]
 
 def stream_packets(pcap, label):
     """流式生成器: 累积整个pcap的流, 处理完毕后统一过滤并yield"""
@@ -78,25 +80,15 @@ def process_all_pcaps(output_flow_csv, output_plevel_csv, max_length=100):
     all_labels = []
     
     category_dirs = {
-        #'aim': 'dataset_pcap/aim',
-        'socialapp': 'dataset_pcap/socialapp',
-        'chat': 'dataset_pcap/chat',
-        'email': 'dataset_pcap/email',
-        #'facebook': 'dataset_pcap/facebook',
-        'file': 'dataset_pcap/file',
-        #'ftps': 'dataset_pcap/ftps',
-        #'gmail': 'dataset_pcap/gmail',
-        #'hangouts': 'dataset_pcap/hangouts',
-        #'icq': 'dataset_pcap/icq',
-        #'netflix': 'dataset_pcap/netflix',
-        'streaming': 'dataset_pcap/streaming',
-        #'scp': 'dataset_pcap/scp',
-        #'sftp': 'dataset_pcap/sftp',
-        #'skype': 'dataset_pcap/skype',
-        #'spotify': 'dataset_pcap/spotify',
-        #'vimeo': 'dataset_pcap/vimeo',
-        'VoIP': 'dataset_pcap/VoIP',
-        #'youtube': 'dataset_pcap/youtube'
+        'socialapp': 'Tor-NonTor/socialapp',
+        'chat': 'Tor-NonTor/chat',
+        'email': 'Tor-NonTor/email',
+        'file': 'Tor-NonTor/file',
+        'streaming': 'Tor-NonTor/streaming',
+        'VoIP': 'Tor-NonTor/VoIP',
+        #'web': 'Tor-NonTor/web',
+        #'Benign': 'USTC/Benign',
+        #'Malware': 'USTC/Malware'          
     }
 
     pcap_files = []
@@ -148,7 +140,7 @@ def process_all_pcaps(output_flow_csv, output_plevel_csv, max_length=100):
     
     # 初始化SMOTE（自动处理所有类别到target_samples个样本）
     # 设置目标样本数
-    target_samples = 8000
+    target_samples = 10000
     valid_categories = []
 
     # 筛选有效类别（至少2个样本）

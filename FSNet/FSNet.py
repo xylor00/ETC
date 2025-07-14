@@ -11,6 +11,8 @@ import torch.nn.functional as F
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 categories = ["socialapp", "chat", "email", "file", "streaming", "VoIP"]
+#categories = ["socialapp", "chat", "email", "file", "streaming", "web"]
+#categories = ["Benign", "Malware"]
 
 def compute_confusion_matrix(true_labels, pred_labels, num_classes):
     """计算混淆矩阵"""
@@ -184,7 +186,7 @@ class FSNetConfig:
         self.input_size = 100  # 输入特征维度
         self.hidden = 128      # GRU隐藏单元数
         self.layer = 2         # GRU层数
-        self.keep_prob = 0.7   # dropout保留率
+        self.keep_prob = 0.5   # dropout保留率
         self.class_num = len(categories)  # 分类类别数
         self.rec_loss = 1    # 重构损失权重
 
@@ -196,7 +198,7 @@ if __name__ == '__main__':
     num_classes = len(categories)
     num_epochs = 500
     batch_size = 512
-    lr = 0.0005
+    lr = 0.001
 
     # 加载原始数据
     full_raw = RawDataset('features/flow_sequences.csv')
@@ -243,7 +245,7 @@ if __name__ == '__main__':
 
     # 早停参数
     best_avg_val_loss = 100
-    patience = 15
+    patience = 5
     no_improve_epochs = 0
     stop_training = False
     

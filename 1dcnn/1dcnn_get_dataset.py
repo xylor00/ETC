@@ -12,6 +12,8 @@ from imblearn.pipeline import Pipeline
 from imblearn.under_sampling import RandomUnderSampler
 
 categories = ["socialapp", "chat", "email", "file", "streaming", "VoIP"]
+#categories = ["socialapp", "chat", "email", "file", "streaming", "web"]
+#categories = ["Benign", "Malware"]
 
 # 提取的每个流的最大字节数
 MAX_FLOW_BYTES = 784
@@ -66,12 +68,15 @@ def process_all_pcaps(output_784byte_csv):
     all_labels = [] # 用于存储所有流的标签
 
     category_dirs = {
-        'socialapp': 'dataset_pcap/socialapp',
-        'chat': 'dataset_pcap/chat',
-        'email': 'dataset_pcap/email',
-        'file': 'dataset_pcap/file',
-        'streaming': 'dataset_pcap/streaming',
-        'VoIP': 'dataset_pcap/VoIP',
+        'socialapp': 'Tor-NonTor/socialapp',
+        'chat': 'Tor-NonTor/chat',
+        'email': 'Tor-NonTor/email',
+        'file': 'Tor-NonTor/file',
+        'streaming': 'Tor-NonTor/streaming',
+        'VoIP': 'Tor-NonTor/VoIP',
+        #'web': 'Tor-NonTor/web',
+        #'Benign': 'USTC/Benign',
+        #'Malware': 'USTC/Malware'   
     }
 
     pcap_files = []
@@ -125,7 +130,7 @@ def process_all_pcaps(output_784byte_csv):
     X_compound = np.array(all_784byte_features, dtype=np.float64)
 
     # 设置目标样本数，以平衡各类样本数量(考虑到特征的长度，减少采样数量)
-    target_samples = 2000
+    target_samples = 1000
     valid_categories = []
 
     # 筛选有效类别（至少2个样本才能进行SMOTE）

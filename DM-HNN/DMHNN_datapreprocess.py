@@ -21,7 +21,9 @@ MAX_PACKETS = 20       # 每个流取前20个包
 MAX_BYTES = 40         # 每个包取前40字节
 ONE_HOT_DIM = 256      # 字节值one-hot编码尺寸 (0-255)
 POS_ENCODING_DIM = 256  # 位置编码维度 (必须与ONE_HOT_DIM相同)
-categories = ["socialapp", "chat", "email", "file", "streaming", "VoIP"]
+#categories = ["socialapp", "chat", "email", "file", "streaming", "VoIP"]
+#categories = ["socialapp", "chat", "email", "file", "streaming", "web"]
+categories = ["Benign", "Malware"]
 TARGET_DIM = 128       # 目标降维维度
 BATCH_SIZE = 1500       # 批处理大小
 
@@ -149,12 +151,15 @@ def process_all_pcaps(output_flevel_csv, output_plevel_csv):
     all_labels = []
     
     category_dirs = {
-        'socialapp': 'dataset_pcap/socialapp',
-        'chat': 'dataset_pcap/chat',
-        'email': 'dataset_pcap/email',
-        'file': 'dataset_pcap/file',
-        'streaming': 'dataset_pcap/streaming',
-        'VoIP': 'dataset_pcap/VoIP'
+        'socialapp': 'Tor-NonTor/socialapp',
+        'chat': 'Tor-NonTor/chat',
+        'email': 'Tor-NonTor/email',
+        'file': 'Tor-NonTor/file',
+        'streaming': 'Tor-NonTor/streaming',
+        'VoIP': 'Tor-NonTor/VoIP',
+        #'web': 'Tor-NonTor/web',
+        #'Benign': 'USTC/Benign',
+        #'Malware': 'USTC/Malware'        
     }
 
     pcap_files = []
