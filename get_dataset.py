@@ -16,6 +16,7 @@ max_byte_len = 12
 categories = ["socialapp", "chat", "email", "file", "streaming", "VoIP"]
 #categories = ["socialapp", "chat", "email", "file", "streaming", "web"]
 #categories = ["Benign", "Malware"]
+#categories = ["chat", "file", "streaming", "VoIP", "C2"]
 
 def stream_packets(pcap, label):
     """流式生成器: 累积整个pcap的流, 处理完毕后统一过滤并yield"""
@@ -88,7 +89,8 @@ def process_all_pcaps(output_flow_csv, output_plevel_csv, max_length=100):
         'VoIP': 'Tor-NonTor/VoIP',
         #'web': 'Tor-NonTor/web',
         #'Benign': 'USTC/Benign',
-        #'Malware': 'USTC/Malware'          
+        #'Malware': 'USTC/Malware' 
+        #'C2': 'VNAT/C2'             
     }
 
     pcap_files = []

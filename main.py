@@ -11,6 +11,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 categories = ["socialapp", "chat", "email", "file", "streaming", "VoIP"]
 #categories = ["socialapp", "chat", "email", "file", "streaming", "web"]
 #categories = ["Benign", "Malware"]
+#categories = ["chat", "file", "streaming", "VoIP", "C2"]
 
 def compute_confusion_matrix(true_labels, pred_labels, num_classes):
         """
