@@ -43,15 +43,18 @@ class Simple1DEncoder(nn.Module):
         super().__init__()
         self.net = nn.Sequential(
             # 输入: (B, 1, 100)
-            nn.Conv1d(1, 128, kernel_size=3, padding=1),
-            nn.BatchNorm1d(128),
+            nn.Conv1d(1, 64, kernel_size=3, padding=1),
+            nn.BatchNorm1d(64),
             nn.ReLU(),
-            nn.Conv1d(128, 512, kernel_size=3, padding=1),
-            nn.BatchNorm1d(512),
+            nn.Conv1d(64, 256, kernel_size=3, padding=1),
+            nn.BatchNorm1d(256),
+            nn.ReLU(),
+            nn.Conv1d(256, 1024, kernel_size=3, padding=1),
+            nn.BatchNorm1d(1024),
             nn.ReLU(),
             nn.AdaptiveAvgPool1d(1), # 池化成 (B, 256, 1)
             nn.Flatten(),            # 展平 (B, 256)
-            nn.Linear(512, output_dim)
+            nn.Linear(1024, output_dim)
         )
 
     def forward(self, x):
@@ -184,7 +187,7 @@ if __name__ == '__main__':
         augment_fn = augment_fn_1d_1, # 传入自定义的 1D 增强
         augment_fn2 = augment_fn_1d_2,
         projection_size = 128,
-        projection_hidden_size = 2048
+        projection_hidden_size = 4096
     ).to(device)
 
     optimizer = torch.optim.AdamW(
@@ -206,7 +209,7 @@ if __name__ == '__main__':
     
     # 早停参数
     best_avg_val_loss = 100
-    patience = 200
+    patience = 100
     no_improve_epochs = 0
     stop_training = False
     

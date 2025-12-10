@@ -64,36 +64,80 @@ class StandardizedDataset(Dataset):
             torch.tensor(self.labels[idx])
         )
 
-# MLP模型（添加正则化）
-class MLP(nn.Module):
-    def __init__(self, input_size, hidden_size, num_classes):
+# 定义残差块 (Residual Block)
+class ResidualBlock(nn.Module):
+    def __init__(self, hidden_size, dropout_rate=0.2):
         super().__init__()
-        self.fc1 = nn.Linear(input_size, hidden_size)
-        self.bn = nn.BatchNorm1d(hidden_size)
-        self.dropout = nn.Dropout(0.3)
-        self.fc2 = nn.Linear(hidden_size, num_classes)
+        
+        self.fc1 = nn.Linear(hidden_size, hidden_size)
+        self.bn1 = nn.BatchNorm1d(hidden_size)
+        self.fc2 = nn.Linear(hidden_size, hidden_size)
+        self.bn2 = nn.BatchNorm1d(hidden_size)
+        
+        self.dropout = nn.Dropout(dropout_rate) 
         self.relu = nn.ReLU()
 
     def forward(self, x):
-        x = self.fc1(x)
-        x = self.bn(x)
-        x = self.relu(x)               
-        x = self.dropout(x)
-        return self.fc2(x)
+        residual = x
+        
+        out = self.fc1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+        out = self.dropout(out) 
+        
+        out = self.fc2(out)
+        out = self.bn2(out)
+        
+        out += residual 
+        out = self.relu(out) 
+        
+        return out
+    
+# MLP模型 (添加残差连接)
+class MLP(nn.Module):
+    def __init__(self, input_size, hidden_size, num_classes, num_layers=3):
+        super().__init__()
+        
+        # 初始线性层
+        self.initial_fc = nn.Linear(input_size, hidden_size)
+        self.initial_bn = nn.BatchNorm1d(hidden_size)
+        self.relu = nn.ReLU()
+        
+        # 核心残差块堆叠
+        self.layers = nn.ModuleList()
+        for i in range(num_layers):
+            self.layers.append(ResidualBlock(hidden_size))
+            
+        # 最后的分类层
+        self.final_fc = nn.Linear(hidden_size, num_classes)
+        
+    def forward(self, x):
+        # 初始处理
+        x = self.initial_fc(x)
+        x = self.initial_bn(x)
+        x = self.relu(x)
+
+        # 核心残差块处理
+        for layer in self.layers:
+            x = layer(x)
+        
+        # 输出分类 logits
+        return self.final_fc(x)
 
 if __name__ == '__main__':
     multiprocessing.freeze_support()
     
     # 超参数
-    input_size = 256  
-    hidden_size = 500
+    input_size = 128  
+    hidden_size = 1024
+    MLPlayers = 3
     num_classes = len(categories)
-    num_epochs = 500
+    num_epochs = 10000
     batch_size = 512
     lr = 1e-4
 
     # 加载原始数据
-    full_raw = RawDataset('features/merge_features.csv')
+    full_raw = RawDataset('features/flevel_features.csv')
     
     train_size = int(0.6 * len(full_raw))
     val_size = int(0.2 * len(full_raw))
@@ -127,7 +171,7 @@ if __name__ == '__main__':
 
 
     # 初始化
-    model = MLP(input_size, hidden_size, num_classes).to(device)
+    model = MLP(input_size, hidden_size, num_classes, num_layers=MLPlayers).to(device)
     
     criterion = nn.CrossEntropyLoss()
     
@@ -135,13 +179,13 @@ if __name__ == '__main__':
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=lr,                  # 设置基础学习率
-        weight_decay=1e-3,
+        weight_decay=5e-4,
         betas=(0.9, 0.98)
     )
 
     scheduler = OneCycleLR(
         optimizer,
-        max_lr=lr*15,      # 峰值学习率
+        max_lr=lr*50,      # 峰值学习率
         total_steps=num_epochs,
         pct_start=0.25,     # warmup阶段
         anneal_strategy='cos',
@@ -151,7 +195,7 @@ if __name__ == '__main__':
 
     # 早停参数
     best_avg_val_loss = 100
-    patience = 15
+    patience = 100
     no_improve_epochs = 0
     stop_training = False
     
