@@ -193,17 +193,17 @@ if __name__ == '__main__':
     optimizer = torch.optim.AdamW(
         learner.parameters(),
         lr=lr,                  # 基础学习率
-        weight_decay=5e-4,
+        weight_decay=1e-3,
         betas=(0.9, 0.98)
     )
 
     scheduler = OneCycleLR(
         optimizer,
-        max_lr=lr*50,      # 峰值学习率
+        max_lr=lr*20,      # 峰值学习率
         total_steps=num_epochs,
-        pct_start=0.25,     # warmup阶段
+        pct_start=0.3,     # warmup阶段
         anneal_strategy='cos',
-        div_factor=25,     # 初始学习率与峰值比率
+        div_factor=10,     # 初始学习率与峰值比率
         final_div_factor=1e4
     )
     

@@ -129,8 +129,8 @@ if __name__ == '__main__':
     
     # 超参数
     input_size = 128  
-    hidden_size = 1024
-    MLPlayers = 3
+    hidden_size = 512
+    MLPlayers = 5
     num_classes = len(categories)
     num_epochs = 10000
     batch_size = 512
@@ -179,23 +179,24 @@ if __name__ == '__main__':
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=lr,                  # 设置基础学习率
-        weight_decay=5e-4,
+        weight_decay=1e-3,
         betas=(0.9, 0.98)
     )
 
     scheduler = OneCycleLR(
         optimizer,
-        max_lr=lr*50,      # 峰值学习率
+        max_lr=lr*20,      # 峰值学习率
         total_steps=num_epochs,
-        pct_start=0.25,     # warmup阶段
+        pct_start=0.3,     # warmup阶段
         anneal_strategy='cos',
-        div_factor=25,     # 初始学习率与峰值比率
+        div_factor=10,     # 初始学习率与峰值比率
         final_div_factor=1e4
     )
 
     # 早停参数
     best_avg_val_loss = 100
-    patience = 100
+    best_acc = 0.0
+    patience = 200
     no_improve_epochs = 0
     stop_training = False
     
@@ -235,8 +236,8 @@ if __name__ == '__main__':
         avg_val_loss = val_loss / len(val_loader)
         
         # 早停判断
-        if avg_val_loss < best_avg_val_loss:
-            best_avg_val_loss = avg_val_loss
+        if val_acc > best_acc:
+            best_acc = val_acc
             no_improve_epochs = 0
             torch.save(model.state_dict(), 'model/best_model.pth')
         else:
