@@ -128,7 +128,7 @@ if __name__ == '__main__':
     multiprocessing.freeze_support()
     
     # 超参数
-    input_size = 128  
+    input_size = 256  
     hidden_size = 512
     MLPlayers = 5
     num_classes = len(categories)
@@ -137,7 +137,7 @@ if __name__ == '__main__':
     lr = 1e-4
 
     # 加载原始数据
-    full_raw = RawDataset('features/flevel_features.csv')
+    full_raw = RawDataset('features/merge_features.csv')
     
     train_size = int(0.6 * len(full_raw))
     val_size = int(0.2 * len(full_raw))
