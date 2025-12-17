@@ -42,7 +42,7 @@ class Simple1DEncoder(nn.Module):
     def __init__(self, input_dim=16, output_dim=128):
         super().__init__()
         self.net = nn.Sequential(
-            # 输入: (B, 1, 100)
+            # 输入: (B, 1, 16)
             nn.Conv1d(1, 64, kernel_size=3, padding=1),
             nn.BatchNorm1d(64),
             nn.ReLU(),
@@ -52,8 +52,8 @@ class Simple1DEncoder(nn.Module):
             nn.Conv1d(256, 1024, kernel_size=3, padding=1),
             nn.BatchNorm1d(1024),
             nn.ReLU(),
-            nn.AdaptiveAvgPool1d(1), # 池化成 (B, 256, 1)
-            nn.Flatten(),            # 展平 (B, 256)
+            nn.AdaptiveAvgPool1d(1), # 池化成 (B, 1024, 1)
+            nn.Flatten(),            # 展平 (B, 1024)
             nn.Linear(1024, output_dim)
         )
 

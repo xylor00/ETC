@@ -81,12 +81,12 @@ def process_all_pcaps(output_flow_csv, output_plevel_csv, max_length=100):
     all_labels = []
     
     category_dirs = {
-        'socialapp': 'Tor-NonTor/socialapp',
-        'chat': 'Tor-NonTor/chat',
-        'email': 'Tor-NonTor/email',
-        'file': 'Tor-NonTor/file',
-        'streaming': 'Tor-NonTor/streaming',
-        'VoIP': 'Tor-NonTor/VoIP',
+        'socialapp': 'VPN-NonVPN/socialapp',
+        'chat': 'VPN-NonVPN/chat',
+        'email': 'VPN-NonVPN/email',
+        'file': 'VPN-NonVPN/file',
+        'streaming': 'VPN-NonVPN/streaming',
+        'VoIP': 'VPN-NonVPN/VoIP',
         #'web': 'Tor-NonTor/web',
         #'Benign': 'USTC/Benign',
         #'Malware': 'USTC/Malware' 
@@ -128,7 +128,6 @@ def process_all_pcaps(output_flow_csv, output_plevel_csv, max_length=100):
         
         label_counter = Counter(all_labels)
     
-    print("Original sample distribution:", label_counter)
     
     # 平衡数据集
     le = LabelEncoder()
@@ -142,7 +141,7 @@ def process_all_pcaps(output_flow_csv, output_plevel_csv, max_length=100):
     
     # 初始化SMOTE（自动处理所有类别到target_samples个样本）
     # 设置目标样本数
-    target_samples = 10000
+    target_samples = 1000
     valid_categories = []
 
     # 筛选有效类别（至少2个样本）
