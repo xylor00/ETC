@@ -10,7 +10,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class FeatureFusion(nn.Module):
     """特征融合模块"""
-    def __init__(self, flevel_dim, plevel_dim, hidden_dim=128, align_dim=256, num_classes=6):
+    def __init__(self, flevel_dim, plevel_dim, hidden_dim=1024, align_dim=256, num_classes=6):
         super().__init__()
         self.f_proj = nn.Linear(flevel_dim, align_dim)
         self.p_proj = nn.Linear(plevel_dim, align_dim)
@@ -60,7 +60,7 @@ model = FeatureFusion(flevel_dim=flevel_dim, plevel_dim=plevel_dim,num_classes=l
 criterion = nn.CrossEntropyLoss()
 # 优化器为AdamW
 lr = 1e-4
-num_epochs = 5000
+num_epochs = 10000
 optimizer = torch.optim.AdamW(
     model.parameters(),
     lr=lr,                  # 设置基础学习率
@@ -109,6 +109,7 @@ for epoch in range(num_epochs):
     if loss.item() < best_avg_val_loss:
         best_avg_val_loss = loss.item()
         no_improve_epochs = 0
+        torch.save(model.state_dict(), 'model/merge_model.pth')
     
     else:
         no_improve_epochs += 1
@@ -118,7 +119,8 @@ for epoch in range(num_epochs):
     scheduler.step()  # 执行主调度
     
     print(f"Epoch {epoch+1}, Loss: {loss.item():.4f}, Best Loss: {best_avg_val_loss:.4f}", flush=True)
-        
+
+model.load_state_dict(torch.load('model/merge_model.pth'))        
 model.eval() # 切换到评估模式
 with torch.no_grad():
     # 获取最终优化后的融合特征和权重比例

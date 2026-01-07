@@ -129,15 +129,15 @@ if __name__ == '__main__':
     
     # 超参数
     input_size = 256  
-    hidden_size = 512
+    hidden_size = 1024
     MLPlayers = 5
     num_classes = len(categories)
-    num_epochs = 10000
+    num_epochs = 5000
     batch_size = 512
     lr = 1e-4
 
     # 加载原始数据
-    full_raw = RawDataset('features/merge_features.csv')
+    full_raw = RawDataset('features/flevel_features.csv')
     
     train_size = int(0.6 * len(full_raw))
     val_size = int(0.2 * len(full_raw))
@@ -183,20 +183,18 @@ if __name__ == '__main__':
         betas=(0.9, 0.98)
     )
 
-    scheduler = OneCycleLR(
-        optimizer,
-        max_lr=lr*20,      # 峰值学习率
-        total_steps=num_epochs,
-        pct_start=0.3,     # warmup阶段
-        anneal_strategy='cos',
-        div_factor=10,     # 初始学习率与峰值比率
-        final_div_factor=1e4
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, 
+        mode='max',      # 监测 acc 增长
+        factor=0.5,      # 触发后 LR 减半
+        patience=150    # 200个epoch没提升就降速
     )
 
     # 早停参数
     best_avg_val_loss = 100
     best_acc = 0.0
-    patience = 200
+    decay_patience = 200  # 如果200代没提升，就回溯并降温
+    patience = 1000      # 如果1000代没提升，就停止训练
     no_improve_epochs = 0
     stop_training = False
     
@@ -242,16 +240,22 @@ if __name__ == '__main__':
             torch.save(model.state_dict(), 'model/best_model.pth')
         else:
             no_improve_epochs += 1
+            if no_improve_epochs % decay_patience == 0 and no_improve_epochs > 0:
+                print(f"Detected jitter. Loading best model and reducing LR...", flush=True)
+                model.load_state_dict(torch.load('model/best_model.pth'))
+                for param_group in optimizer.param_groups:
+                    param_group['lr'] *= 0.5
             if no_improve_epochs >= patience:
                 stop_training = True
         
-        scheduler.step()  # 执行主调度
+        scheduler.step(val_acc)  # 执行主调度
         
         # 打印信息
         print(f"Epoch {epoch+1}: "
               f"Train Loss={avg_train_loss:.4f}, "
               f"Val Loss={avg_val_loss:.4f}, "
-              f"Val Acc={val_acc:.2%}", flush=True)
+              f"Val Acc={val_acc:.2%}, "
+              f"best Acc={best_acc:.2%}", flush=True)
         
     # 测试评估
     model.load_state_dict(torch.load('model/best_model.pth'))

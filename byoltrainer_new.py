@@ -23,7 +23,7 @@ categories = ["socialapp", "chat", "email", "file", "streaming", "VoIP"]
 class RawDataset(Dataset):
     def __init__(self, csv_path):
         self.data = pd.read_csv(csv_path, skiprows=1, header=None)
-        self.features = self.data.iloc[:, :16].values.astype('float32')
+        self.features = self.data.iloc[:, :-1].values.astype('float32')
         self.labels = self.data.iloc[:, -1].values
 
     def __len__(self):
@@ -39,22 +39,22 @@ class RawDataset(Dataset):
 # 2. 定义适合 1D 数据的骨干网络 (替换 ResNet50)
 # ==========================================
 class Simple1DEncoder(nn.Module):
-    def __init__(self, input_dim=16, output_dim=128):
+    def __init__(self, input_dim=100, output_dim=256):
         super().__init__()
         self.net = nn.Sequential(
-            # 输入: (B, 1, 16)
-            nn.Conv1d(1, 64, kernel_size=3, padding=1),
-            nn.BatchNorm1d(64),
+            # 输入: (B, 1, 100)
+            nn.Conv1d(1, 128, kernel_size=3, padding=1),
+            nn.BatchNorm1d(128),
             nn.ReLU(),
-            nn.Conv1d(64, 256, kernel_size=3, padding=1),
-            nn.BatchNorm1d(256),
+            nn.Conv1d(128, 512, kernel_size=3, padding=1),
+            nn.BatchNorm1d(512),
             nn.ReLU(),
-            nn.Conv1d(256, 1024, kernel_size=3, padding=1),
-            nn.BatchNorm1d(1024),
+            nn.Conv1d(512, 2048, kernel_size=3, padding=1),
+            nn.BatchNorm1d(2048),
             nn.ReLU(),
-            nn.AdaptiveAvgPool1d(1), # 池化成 (B, 1024, 1)
-            nn.Flatten(),            # 展平 (B, 1024)
-            nn.Linear(1024, output_dim)
+            nn.AdaptiveAvgPool1d(1), # 池化成 (B, 2048, 1)
+            nn.Flatten(),            # 展平 (B, 2048)
+            nn.Linear(2048, output_dim)
         )
 
     def forward(self, x):
@@ -64,7 +64,7 @@ class Simple1DEncoder(nn.Module):
 # ==========================================
 # 3. 定义适合 1D 序列的数据增强
 # ==========================================
-class RandomGaussianNoise(nn.Module):
+class RandomGaussianNoise(nn.Module):#噪声
     def __init__(self, std=0.1):
         super().__init__()
         self.std = std
@@ -80,7 +80,7 @@ augment_fn_1d_1 = nn.Sequential(
     RandomGaussianNoise(std=0.05)
 )
 
-class RandomScale(nn.Module):
+class RandomScale(nn.Module):#缩放
     def __init__(self, scale_range=(0.8, 1.2)):
         super().__init__()
         self.scale_range = scale_range
@@ -99,10 +99,32 @@ class RandomScale(nn.Module):
         scaled_x = x * scale_factor 
         
         return scaled_x
+    
+class RandomMasking(nn.Module):#遮罩
+    def __init__(self, mask_ratio=0.1):
+        super().__init__()
+        self.mask_ratio = mask_ratio
 
-# 第二个增强函数 (augment_fn2)：主要进行缩放
+    def forward(self, x):
+        if not self.training: return x
+        
+        # x: (B, C, L)
+        B, C, L = x.shape
+        num_mask = int(L * self.mask_ratio)
+        
+        # 随机选择要遮罩的索引
+        mask = torch.ones_like(x).bool()
+        for i in range(B):
+            # 为每个样本独立生成随机索引
+            indices = torch.randperm(L)[:num_mask].to(x.device)
+            mask[i, :, indices] = False # 设置为 False 的地方将被遮罩
+            
+        return x * mask.float() # 遮罩后的值变为 0
+
+# 第二个增强函数 (augment_fn2)：主要进行缩放和遮罩
 augment_fn_1d_2 = nn.Sequential(
-    RandomScale(scale_range=(0.8, 1.2))
+    RandomScale(scale_range=(0.8, 1.2)),
+    RandomMasking(mask_ratio=0.1)
 )
 
 # 分割数据集类（含标准化） 
@@ -139,7 +161,7 @@ if __name__ == '__main__':
     multiprocessing.freeze_support()
     
     # 超参数
-    num_epochs = 5000
+    num_epochs = 500
     batch_size=256
     lr = 2e-5
 
@@ -177,16 +199,16 @@ if __name__ == '__main__':
     feature_loader = DataLoader(full_dataset, batch_size=batch_size, shuffle=False, pin_memory=True, num_workers=4, persistent_workers=True)
 
     # 实例化 1D 模型
-    encoder = Simple1DEncoder(input_dim=16, output_dim=128).to(device)
+    encoder = Simple1DEncoder(input_dim=100, output_dim=256).to(device)
     
     # 实例化 BYOL
     learner = BYOL(
         encoder,
-        image_size = 16, # 这里其实不仅是 image_size，主要是为了占位，BYOL 内部用不上这个做 crop 了
+        image_size = 100, # 这里其实不仅是 image_size，主要是为了占位，BYOL 内部用不上这个做 crop 了
         hidden_layer = -1, # 重要：设置为 -1 表示直接获取 encoder 的最终输出，不从中间层截断
         augment_fn = augment_fn_1d_1, # 传入自定义的 1D 增强
         augment_fn2 = augment_fn_1d_2,
-        projection_size = 128,
+        projection_size = 256,
         projection_hidden_size = 4096
     ).to(device)
 
@@ -197,18 +219,16 @@ if __name__ == '__main__':
         betas=(0.9, 0.98)
     )
 
-    scheduler = OneCycleLR(
-        optimizer,
-        max_lr=lr*20,      # 峰值学习率
-        total_steps=num_epochs,
-        pct_start=0.3,     # warmup阶段
-        anneal_strategy='cos',
-        div_factor=10,     # 初始学习率与峰值比率
-        final_div_factor=1e4
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, 
+        mode='max',      # 监测 acc 增长
+        factor=0.5,      # 触发后 LR 减半
+        patience=15    # 20个epoch没提升就降速
     )
     
     # 早停参数
     best_avg_val_loss = 100
+    decay_patience = 20  # 如果20代没提升，就回溯并降温
     patience = 100
     no_improve_epochs = 0
     stop_training = False
@@ -262,10 +282,15 @@ if __name__ == '__main__':
             torch.save(encoder.state_dict(), 'model/improved-net.pth')
         else:
             no_improve_epochs += 1
+            if no_improve_epochs % decay_patience == 0 and no_improve_epochs > 0:
+                print(f"Detected jitter. Loading best model and reducing LR...", flush=True)
+                encoder.load_state_dict(torch.load('model/improved-net.pth'))
+                for param_group in optimizer.param_groups:
+                    param_group['lr'] *= 0.5
             if no_improve_epochs >= patience:
                 stop_training = True            
             
-        scheduler.step()  # 执行调度
+        scheduler.step(avg_val_loss)  # 执行调度
             
         # 打印信息
         print(f"Epoch {epoch+1}: "
