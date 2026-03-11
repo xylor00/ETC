@@ -23,7 +23,7 @@ categories = ["socialapp", "chat", "email", "file", "streaming", "VoIP"]
 class RawDataset(Dataset):
     def __init__(self, csv_path):
         self.data = pd.read_csv(csv_path, skiprows=1, header=None)
-        self.features = self.data.iloc[:, :-1].values.astype('float32')
+        self.features = self.data.iloc[:, :16].values.astype('float32')
         self.labels = self.data.iloc[:, -1].values
 
     def __len__(self):
@@ -39,7 +39,7 @@ class RawDataset(Dataset):
 # 2. 定义适合 1D 数据的骨干网络 (替换 ResNet50)
 # ==========================================
 class Simple1DEncoder(nn.Module):
-    def __init__(self, input_dim=100, output_dim=256):
+    def __init__(self, input_dim=16, output_dim=256):
         super().__init__()
         self.net = nn.Sequential(
             # 输入: (B, 1, 100)
@@ -49,12 +49,12 @@ class Simple1DEncoder(nn.Module):
             nn.Conv1d(128, 512, kernel_size=3, padding=1),
             nn.BatchNorm1d(512),
             nn.ReLU(),
-            nn.Conv1d(512, 2048, kernel_size=3, padding=1),
-            nn.BatchNorm1d(2048),
+            nn.Conv1d(512, 1024, kernel_size=3, padding=1),
+            nn.BatchNorm1d(1024),
             nn.ReLU(),
-            nn.AdaptiveAvgPool1d(1), # 池化成 (B, 2048, 1)
-            nn.Flatten(),            # 展平 (B, 2048)
-            nn.Linear(2048, output_dim)
+            nn.AdaptiveAvgPool1d(1), # 池化成 (B, 1024, 1)
+            nn.Flatten(),            # 展平 (B, 1024)
+            nn.Linear(1024, output_dim)
         )
 
     def forward(self, x):
@@ -199,12 +199,12 @@ if __name__ == '__main__':
     feature_loader = DataLoader(full_dataset, batch_size=batch_size, shuffle=False, pin_memory=True, num_workers=4, persistent_workers=True)
 
     # 实例化 1D 模型
-    encoder = Simple1DEncoder(input_dim=100, output_dim=256).to(device)
+    encoder = Simple1DEncoder(input_dim=16, output_dim=256).to(device)
     
     # 实例化 BYOL
     learner = BYOL(
         encoder,
-        image_size = 100, # 这里其实不仅是 image_size，主要是为了占位，BYOL 内部用不上这个做 crop 了
+        image_size = 16, # 这里其实不仅是 image_size，主要是为了占位，BYOL 内部用不上这个做 crop 了
         hidden_layer = -1, # 重要：设置为 -1 表示直接获取 encoder 的最终输出，不从中间层截断
         augment_fn = augment_fn_1d_1, # 传入自定义的 1D 增强
         augment_fn2 = augment_fn_1d_2,
@@ -223,7 +223,7 @@ if __name__ == '__main__':
         optimizer, 
         mode='max',      # 监测 acc 增长
         factor=0.5,      # 触发后 LR 减半
-        patience=15    # 20个epoch没提升就降速
+        patience=15    # 15个epoch没提升就降速
     )
     
     # 早停参数
@@ -285,8 +285,14 @@ if __name__ == '__main__':
             if no_improve_epochs % decay_patience == 0 and no_improve_epochs > 0:
                 print(f"Detected jitter. Loading best model and reducing LR...", flush=True)
                 encoder.load_state_dict(torch.load('model/improved-net.pth'))
-                for param_group in optimizer.param_groups:
-                    param_group['lr'] *= 0.5
+                lr = lr * 0.5
+                optimizer = torch.optim.AdamW(
+                    learner.parameters(),
+                    lr=lr,
+                    weight_decay=1e-2,
+                    betas=(0.9, 0.98)
+                )
+                scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=15)
             if no_improve_epochs >= patience:
                 stop_training = True            
             
