@@ -10,9 +10,10 @@ from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 import torch.nn.functional as F
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-categories = ["socialapp", "chat", "email", "file", "streaming", "VoIP"]
+#categories = ["socialapp", "chat", "email", "file", "streaming", "VoIP"]
 #categories = ["socialapp", "chat", "email", "file", "streaming", "web"]
 #categories = ["Benign", "Malware"]
+categories = ["chat", "file", "streaming", "VoIP", "C2"]
 
 def compute_confusion_matrix(true_labels, pred_labels, num_classes):
     """计算混淆矩阵"""
@@ -245,7 +246,7 @@ if __name__ == '__main__':
 
     # 早停参数
     best_avg_val_loss = 100
-    patience = 5
+    patience = 20
     no_improve_epochs = 0
     stop_training = False
     

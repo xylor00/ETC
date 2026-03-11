@@ -137,7 +137,7 @@ if __name__ == '__main__':
     lr = 1e-4
 
     # 加载原始数据
-    full_raw = RawDataset('features/flevel_features.csv')
+    full_raw = RawDataset('features/merge_features.csv')
     
     train_size = int(0.6 * len(full_raw))
     val_size = int(0.2 * len(full_raw))
@@ -199,7 +199,7 @@ if __name__ == '__main__':
     stop_training = False
     
     for epoch in range(num_epochs):
-        # 检查早停条件
+        # 检查早停条件        
         if stop_training:
             print(f"Early stopping at epoch {epoch}", flush=True)
             print(f"get model at epoch {epoch-patience}", flush=True)

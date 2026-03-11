@@ -63,7 +63,7 @@ if __name__ == '__main__':
     multiprocessing.freeze_support()
     
     # 超参数
-    num_epochs = 100
+    num_epochs = 500
     batch_size=256
     lr = 2e-5
 
@@ -119,7 +119,7 @@ if __name__ == '__main__':
         augment_fn2=aug_2,
         projection_size=128,
         projection_hidden_size=256,
-        moving_average_decay=0.996  # EMA动量（默认0.99可能过低）
+        moving_average_decay=0.996  # EMA动量
     ).to(device)
 
     optimizer = torch.optim.AdamW(
@@ -141,7 +141,7 @@ if __name__ == '__main__':
     
     # 早停参数
     best_avg_val_loss = 100
-    patience = 10
+    patience = 20
     no_improve_epochs = 0
     stop_training = False
     
