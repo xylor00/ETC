@@ -17,7 +17,7 @@ def append_pkt_ngram(pkt, n):
         # 对数压缩后归一化
         log_val = math.log(1 + ngram_dec)
         normalized = log_val / log_max
-        normalized = 2 * normalized - 1       # 新范围 [-1,1]
+        normalized = 2 * normalized - 1
         ngram_pkt.append(normalized)
     
     return ngram_pkt
@@ -33,7 +33,7 @@ def create_plevel_feature(IPhead_bytes):
         pkt = IPhead_bytes[i]
         
         # 原始字节归一化（保持线性）
-        normalized_bytes = [(byte/255.0)*4 - 2 for byte in pkt]
+        normalized_bytes = [(byte/255.0)*2 - 1 for byte in pkt]
         plevel_feature.extend(normalized_bytes)
         
         # 添加对数压缩后的2-gram和3-gram
@@ -47,7 +47,7 @@ def create_plevel_feature(IPhead_bytes):
         zero_pkt = [0] * (len(IPhead_bytes[0]) if IPhead_bytes else [0])
         
         # 原始字节归一化（全零）
-        normalized_bytes = [0.0] * len(zero_pkt)  # 归一化后全为-2
+        normalized_bytes = [0.0] * len(zero_pkt)  # 归一化后全为-1
         plevel_feature.extend(normalized_bytes)
         
         # 添加零填充的2-gram和3-gram
